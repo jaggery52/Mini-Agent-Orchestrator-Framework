@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Agent UI</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f8;
+      --panel: #ffffff;
+      --border: #d9dde3;
+      --text: #1f2933;
+      --muted: #67717f;
+      --muted-bg: #f0f2f5;
+      --agent: #ffffff;
+      --user: #dcecff;
+      --final: #ecf8ef;
+      --error: #b42318;
+      --error-bg: #fff0ed;
+      --accent: #1d4ed8;
+      --disabled: #a8b0bb;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 15px;
+      line-height: 1.45;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: minmax(280px, 0.95fr) minmax(360px, 1.35fr);
+      gap: 16px;
+      height: 100%;
+      padding: 16px;
+    }
+
+    .panel {
+      display: flex;
+      min-height: 0;
+      flex-direction: column;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 56px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .panel-title {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 650;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--disabled);
+    }
+
+    .status-dot.connected {
+      background: #16a34a;
+    }
+
+    .status-dot.error {
+      background: var(--error);
+    }
+
+    .scroll-area {
+      min-height: 0;
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px;
+    }
+
+    .thinking-log {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background: #fbfbfc;
+    }
+
+    .thinking-item {
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: var(--muted-bg);
+      color: var(--muted);
+      padding: 10px;
+    }
+
+    .thinking-item strong {
+      display: block;
+      margin-bottom: 5px;
+      color: #384252;
+      font-size: 13px;
+    }
+
+    .thinking-item.session-complete {
+      border-color: #bbf7d0;
+      background: #ecf8ef;
+      color: #14532d;
+    }
+
+    .thinking-item.session-complete strong {
+      color: #166534;
+    }
+
+    .thinking-item p {
+      margin: 0;
+    }
+
+    .thinking-item ol {
+      margin: 8px 0 0;
+      padding-left: 22px;
+    }
+
+    .thinking-item li + li {
+      margin-top: 6px;
+    }
+
+    .decision {
+      display: inline-block;
+      margin-top: 8px;
+      border: 1px solid #c7d2fe;
+      border-radius: 999px;
+      background: #eef2ff;
+      color: #3730a3;
+      padding: 2px 8px;
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .chat-log {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .message {
+      display: flex;
+      flex-direction: column;
+      max-width: 78%;
+      gap: 4px;
+    }
+
+    .message.user {
+      align-self: flex-end;
+      align-items: flex-end;
+    }
+
+    .message.agent,
+    .message.system,
+    .message.error {
+      align-self: flex-start;
+    }
+
+    .message-label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .bubble {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    .agent .bubble {
+      background: var(--agent);
+    }
+
+    .user .bubble {
+      border-color: #bfdbfe;
+      background: var(--user);
+    }
+
+    .system .bubble {
+      background: var(--muted-bg);
+      color: var(--muted);
+    }
+
+    .final .bubble {
+      border-color: #bbf7d0;
+      background: var(--final);
+      color: #14532d;
+      font-weight: 520;
+    }
+
+    .error .bubble {
+      border-color: #fecaca;
+      background: var(--error-bg);
+      color: var(--error);
+    }
+
+    .composer {
+      display: flex;
+      gap: 10px;
+      padding: 12px;
+      border-top: 1px solid var(--border);
+      background: #fafafa;
+    }
+
+    .composer input {
+      width: 100%;
+      min-width: 0;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: #ffffff;
+      color: var(--text);
+      padding: 10px 11px;
+      font: inherit;
+    }
+
+    .composer input:disabled {
+      background: #eef0f3;
+      color: var(--disabled);
+      cursor: not-allowed;
+    }
+
+    button {
+      border: 1px solid #1e40af;
+      border-radius: 7px;
+      background: var(--accent);
+      color: #ffffff;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 650;
+      padding: 9px 13px;
+      white-space: nowrap;
+    }
+
+    button:hover:not(:disabled) {
+      background: #1e40af;
+    }
+
+    button:disabled {
+      border-color: #c2c8d1;
+      background: #c9d0da;
+      color: #f8fafc;
+      cursor: not-allowed;
+    }
+
+    .secondary-button {
+      display: none;
+      border-color: var(--border);
+      background: #ffffff;
+      color: var(--text);
+    }
+
+    .secondary-button:hover:not(:disabled) {
+      background: #f3f4f6;
+    }
+
+    .secondary-button.visible {
+      display: inline-flex;
+    }
+
+    @media (max-width: 780px) {
+      .app {
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(220px, 38vh) minmax(360px, 1fr);
+        padding: 10px;
+      }
+
+      .message {
+        max-width: 88%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <section class="panel" aria-label="Agent thinking">
+      <header class="panel-header">
+        <h1 class="panel-title">Thinking</h1>
+        <span class="status" id="thinkingStatus">Waiting for agent activity</span>
+      </header>
+      <div class="scroll-area thinking-log" id="thinkingLog" aria-live="polite"></div>
+    </section>
+
+    <section class="panel" aria-label="Chat">
+      <header class="panel-header">
+        <h2 class="panel-title">Mini Agent</h2>
+        <span class="status">
+          <span class="status-dot" id="statusDot" aria-hidden="true"></span>
+          <span id="connectionStatus">Disconnected</span>
+          <button type="button" class="secondary-button" id="reconnectButton">Reconnect</button>
+        </span>
+      </header>
+
+      <div class="scroll-area chat-log" id="chatLog" aria-live="polite"></div>
+
+      <form class="composer" id="composer">
+        <input
+          id="userInput"
+          type="text"
+          autocomplete="off"
+          placeholder="Waiting for agent..."
+          disabled
+        >
+        <button type="submit" id="sendButton" disabled>Send</button>
+      </form>
+    </section>
+  </main>
+
+  <script>
+    const WS_URL = "ws://localhost:80/ws";
+
+    const chatLog = document.getElementById("chatLog");
+    const thinkingLog = document.getElementById("thinkingLog");
+    const thinkingStatus = document.getElementById("thinkingStatus");
+    const connectionStatus = document.getElementById("connectionStatus");
+    const statusDot = document.getElementById("statusDot");
+    const reconnectButton = document.getElementById("reconnectButton");
+    const composer = document.getElementById("composer");
+    const userInput = document.getElementById("userInput");
+    const sendButton = document.getElementById("sendButton");
+
+    let socket = null;
+    let inputAllowed = false;
+    let sessionEnded = false;
+
+    function setConnectionStatus(text, state) {
+      connectionStatus.textContent = text;
+      statusDot.className = "status-dot";
+
+      if (state === "connected") {
+        statusDot.classList.add("connected");
+      }
+
+      if (state === "error") {
+        statusDot.classList.add("error");
+      }
+    }
+
+    function setInputEnabled(enabled) {
+      inputAllowed = enabled;
+      userInput.disabled = !enabled;
+      sendButton.disabled = !enabled;
+      userInput.placeholder = enabled ? "Type your response..." : "Waiting for agent...";
+
+      if (enabled) {
+        userInput.focus();
+      }
+    }
+
+    function showReconnect(show) {
+      reconnectButton.classList.toggle("visible", show);
+    }
+
+    function scrollToBottom(element) {
+      element.scrollTop = element.scrollHeight;
+    }
+
+    function appendChatMessage(kind, label, content, extraClass) {
+      const message = document.createElement("article");
+      message.className = ["message", kind, extraClass].filter(Boolean).join(" ");
+
+      const labelNode = document.createElement("div");
+      labelNode.className = "message-label";
+      labelNode.textContent = label;
+
+      const bubble = document.createElement("div");
+      bubble.className = "bubble";
+      bubble.textContent = content || "";
+
+      message.append(labelNode, bubble);
+      chatLog.appendChild(message);
+      scrollToBottom(chatLog);
+    }
+
+    function appendThinking(title, contentNode) {
+      const item = document.createElement("article");
+      item.className = "thinking-item";
+
+      const titleNode = document.createElement("strong");
+      titleNode.textContent = title;
+      item.appendChild(titleNode);
+      item.appendChild(contentNode);
+
+      thinkingLog.appendChild(item);
+      thinkingStatus.textContent = "Receiving live updates";
+      scrollToBottom(thinkingLog);
+    }
+
+    function appendPlannerThinking(message) {
+      const wrapper = document.createElement("div");
+
+      const goal = document.createElement("p");
+      goal.textContent = message.goal || "";
+      wrapper.appendChild(goal);
+
+      const tasks = Array.isArray(message.plan) ? message.plan : [];
+      if (tasks.length > 0) {
+        const list = document.createElement("ol");
+        tasks.forEach((task) => {
+          const item = document.createElement("li");
+          const title = task && task.title ? task.title : "Task";
+          const description = task && task.description ? task.description : "";
+          item.textContent = description ? `${title}: ${description}` : title;
+          list.appendChild(item);
+        });
+        wrapper.appendChild(list);
+      }
+
+      appendThinking("Planner", wrapper);
+    }
+
+    function appendBrainThinking(message) {
+      const wrapper = document.createElement("div");
+
+      const thought = document.createElement("p");
+      thought.textContent = message.thought || "";
+      wrapper.appendChild(thought);
+
+      if (message.decision) {
+        const decision = document.createElement("span");
+        decision.className = "decision";
+        decision.textContent = message.decision;
+        wrapper.appendChild(decision);
+      }
+
+      appendThinking("Brain", wrapper);
+    }
+
+    function appendToolThinking(message) {
+      const text = document.createElement("p");
+      text.textContent = message.message || "";
+      appendThinking("Tool", text);
+    }
+
+    function appendSessionEndThinking(status) {
+      const text = document.createElement("p");
+      text.textContent = `I have answered the user's concerns and completed this session. Status: ${status}.`;
+
+      const item = document.createElement("article");
+      item.className = "thinking-item session-complete";
+
+      const titleNode = document.createElement("strong");
+      titleNode.textContent = "Session complete";
+      item.append(titleNode, text);
+
+      thinkingLog.appendChild(item);
+      thinkingStatus.textContent = "Session complete";
+      scrollToBottom(thinkingLog);
+    }
+
+    function handleServerMessage(message) {
+      const type = message.type;
+
+      if (type === "acknowledgement") {
+        const sessionId = message.session_id || "";
+        setConnectionStatus(sessionId ? `Connected: ${sessionId}` : "Connected", "connected");
+        appendChatMessage("agent", "Agent", message.content || "");
+        setInputEnabled(true);
+        return;
+      }
+
+      if (type === "agent_thinking") {
+        setInputEnabled(false);
+        if (message.source === "planner") {
+          appendPlannerThinking(message);
+        } else if (message.source === "brain") {
+          appendBrainThinking(message);
+        } else if (message.source === "tool") {
+          appendToolThinking(message);
+        }
+        return;
+      }
+
+      if (type === "follow_up_question") {
+        appendChatMessage("agent", "Agent", message.content || "");
+        setInputEnabled(true);
+        return;
+      }
+
+      if (type === "final_response") {
+        appendChatMessage("agent", "Final response", message.content || "", "final");
+        setInputEnabled(false);
+        return;
+      }
+
+      if (type === "session_end") {
+        const status = message.status || "unknown";
+        appendSessionEndThinking(status);
+        appendChatMessage("system", "Session", `Session ended. Status: ${status}`);
+        setConnectionStatus(`Session ended: ${status}`, "disconnected");
+        setInputEnabled(false);
+        showReconnect(true);
+        sessionEnded = true;
+        if (socket) {
+          socket.close();
+        }
+        return;
+      }
+
+      if (type === "error") {
+        appendChatMessage("error", "Error", message.content || "Unknown error");
+        setConnectionStatus("Error", "error");
+        setInputEnabled(false);
+        showReconnect(true);
+        return;
+      }
+
+      appendChatMessage("system", "Unknown message", JSON.stringify(message, null, 2));
+    }
+
+    function connect() {
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.close();
+      }
+
+      sessionEnded = false;
+      showReconnect(false);
+      setInputEnabled(false);
+      setConnectionStatus("Connecting...", "disconnected");
+      appendChatMessage("system", "Connection", `Connecting to ${WS_URL}`);
+
+      socket = new WebSocket(WS_URL);
+
+      socket.addEventListener("open", () => {
+        setConnectionStatus("Connected", "connected");
+      });
+
+      socket.addEventListener("message", (event) => {
+        try {
+          handleServerMessage(JSON.parse(event.data));
+        } catch (error) {
+          appendChatMessage("error", "Error", `Could not parse server message: ${error.message}`);
+          setConnectionStatus("Error", "error");
+          setInputEnabled(false);
+        }
+      });
+
+      socket.addEventListener("close", () => {
+        setInputEnabled(false);
+        if (!sessionEnded) {
+          setConnectionStatus("Disconnected", "disconnected");
+          showReconnect(true);
+        }
+      });
+
+      socket.addEventListener("error", () => {
+        appendChatMessage(
+          "error",
+          "Error",
+          `Could not connect to ${WS_URL}. Make sure the server is running.`
+        );
+        setConnectionStatus("Connection error", "error");
+        setInputEnabled(false);
+        showReconnect(true);
+      });
+    }
+
+    composer.addEventListener("submit", (event) => {
+      event.preventDefault();
+
+      const content = userInput.value.trim();
+      if (!content || !inputAllowed || !socket || socket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+
+      socket.send(JSON.stringify({ type: "human_input", content }));
+      appendChatMessage("user", "You", content);
+      userInput.value = "";
+      setInputEnabled(false);
+    });
+
+    reconnectButton.addEventListener("click", connect);
+
+    connect();
+  </script>
+</body>
+</html>

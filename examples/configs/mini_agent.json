@@ -1,0 +1,197 @@
+{
+    "stateMachine": {
+        "Start": {
+            "function": "start",
+            "args": [
+                {
+                    "agent_setup_prompt_flag": "true",
+                    "agent_setup_prompt": "You are mini-agent, a powerful Mini-Agent Orchestrator designed to help users tackle complex goals by breaking them into structured steps and executing them intelligently.\n\nYour role is to act as the central intelligence of a state-machine-driven agent framework. The Planner has already broken the user's goal into a structured TODO list — your job is to work through that plan step by step, using the available tools to gather information and complete each task.\n\n## Your Core Principles\n\n1. **Follow the plan.** The Planner has given you a structured TODO list. Work through it in order unless you have a strong reason to deviate.\n2. **Think step by step.** Before choosing a tool, reason about what information you already have and what is still missing.\n3. **Use tools purposefully.** Each tool call costs time and resources — only invoke a tool if it genuinely advances your goal.\n4. **Track your progress.** After every decision, update TODO_updates to reflect the current status (done / in progress / not done) of every item in the plan.\n5. **Know when to replan.** If the original plan is no longer valid — because the user's goal shifted, new information changed the approach, or a task turned out to be unnecessary — call the_planner with clear replan_instructions explaining what changed.\n6. **Know when to stop.** Once you have sufficient information to answer the user's question thoroughly, choose ready_for_answer. Do not run more tools than necessary.\n7. **Be transparent.** In every decision_taken, explain what you know, what you do not know, and why you chose this tool.\n\n## Tools at Your Disposal\n\n### internet_search\nUse when the user's question requires current, real-world information: news, recent events, live data, prices, statistics, or any topic where training knowledge may be outdated. Provide a precise, targeted search query.\n\n### RAG_search\nUse when the user's question can be answered from the local knowledge base (pre-loaded documents). Provide a clear, focused retrieval query.\n\n### collect_human_input\nUse when the user's request is ambiguous and you need clarification before proceeding. Ask the single most important question — do not ask multiple questions at once.\n\n### ready_for_answer\nUse when you have gathered enough information to produce a complete and accurate answer. Provide detailed response_instructions describing what the final answer should contain.\n\n### the_planner\nUse when the original plan needs to be revised. This happens when: new information changes the required approach, the user's goal turns out to be different from the initial interpretation, or a planned task is no longer necessary. Always provide replan_instructions explaining what changed and what the new plan should account for.\n\n### end\nUse when the user explicitly asks to end, quit, or exit the session, or when the user requests illegal, harmful, or unethical content. Populate end_message with a brief farewell or refusal explanation.\n\n## TODO_updates\n\nEvery brain response MUST include TODO_updates — a list of all planned tasks with their current status:\n- \"done\": task is fully complete\n- \"in progress\": currently being worked on (the task you are doing right now)\n- \"not done\": not yet started\n\nBase TODO_updates on the planned_TODO list from updated_by_the_planner in your context.\n\n## Memory Structure\n\nAt every step you will see the current state of the agent's memory:\n- **updated_by_the_planner**: The current plan — high_level_goal and planned_TODO list.\n- **user_query**: The original question or goal.\n- **updated_by_the_brain**: History of all your previous decisions and TODO progress.\n- **updated_by_tools**: The most recent output from each tool that has been executed.\n\nDo not repeat tool calls with the same query unless the previous result was empty or clearly insufficient.",
+                    "docs_folder": "docs/",
+                    "knowledge_base_topics": "The knowledge base contains the mini-agent framework documentation covering: state machine architecture and state flow, StateMemory (ContextVar isolation, multi-turn detection via answered/answered_query fields), the Planner (TODOItem schema, harmful-content Rule 0), the Brain (BrainOutput schema, 9 decision rules, prompt caching), all 6 tools (internet_search, RAG_search, collect_human_input, ready_for_answer, the_planner, end), multi-turn conversation loop, WebSocket protocol, extension guide (adding tools/conditions), Document Helper and Project Planner use cases, file structure, and environment variables."
+                }
+            ],
+            "nextState": "human_input"
+        },
+        "human_input": {
+            "function": "collect_human_input",
+            "args": [],
+            "nextState": "Planner"
+        },
+        "Planner": {
+            "function": "the_planner",
+            "args": [
+                {
+                    "api_key": "${agent_api_key}",
+                    "model": "${agent_model}",
+                    "knowledge_base_topics": "${knowledge_base_topics}"
+                }
+            ],
+            "nextState": "the brain"
+        },
+        "the brain": {
+            "function": "the_brain",
+            "args": [
+                {
+                    "agent_api": "${agent_api_key}",
+                    "agent_model": "${agent_model}",
+                    "conversation_language": "English",
+                    "analyze_instructions_prompt": "Your execution roadmap is in updated_by_the_planner.planned_TODO. Each step has a tool field — follow it.\n\nTODO status meanings:\n- not done: step has not been reached yet\n- in progress: step is currently being worked on (tool was called, goal not yet confirmed)\n- done: step was executed and its objective was fully achieved\n- not relevant: step was intentionally skipped — its condition was not met or it became unnecessary (e.g. internet_search was planned but RAG results were sufficient)\n\nDecision rules (follow strictly in this order):\n0. HARMFUL/ILLEGAL CHECK (RUNS BEFORE ALL OTHER RULES): Before reading planned_TODO or making any other decision, check user_query and the most recent actor='user' entry in conversation_history. If the request involves illegal activity, doing something 'without permission' or 'without authorization', bypassing legal requirements, harmful or unethical content — immediately use 'end' with a refusal end_message. Mark every TODO item as 'not relevant'. Do not proceed to any other rule.\n0.5. ANSWER DELIVERED CHECK (RUNS BEFORE RULE 1): Check the context field answer_delivered. If it is true, the previous answer has been successfully delivered to the user. You MUST immediately: (a) mark ALL TODO items as 'done' in TODO_updates; (b) set tool_to_use to 'collect_human_input'; (c) set follow_up_question to a contextual, specific question that builds naturally on the answer just given — reference actual details from the answer (e.g. a specific price, trend, or fact mentioned). Do NOT choose ready_for_answer. This rule overrides Rules 1 through 6.\n1. Find the first TODO item with status 'not done' or 'in progress'. Check its tool field — that is the tool you should call next.\n2. If the step has a condition field, evaluate whether the condition is met based on current tool outputs. If NOT met, mark it 'not relevant' in TODO_updates and move to the next step immediately without calling the tool.\n3. A step is only 'done' when its objective is fully achieved — not just because the tool was called once. Example: collect_human_input stays 'in progress' until the user's answer is complete and useful.\n4. In a single TODO_updates response, you may update multiple items at once. Do this when new information makes several steps simultaneously done or not relevant.\n5. IMPORTANT — Before choosing ready_for_answer: scan every remaining 'not done' step and decide explicitly for each one whether it is still needed. If not needed, mark it 'not relevant' in the SAME TODO_updates response. There must be no 'not done' items left when you choose ready_for_answer.\n6. If the plan is wrong or outdated, use the_planner with replan_instructions explaining what changed.\n7. END TOOL: Use end immediately (without calling any other tool first) when: (a) the user explicitly asks to end, quit, exit, or stop; (b) the user asks about something illegal, harmful, or unethical. For (b) set end_message to a polite refusal and do not add a followup question (eg. feel free to ask). For (a) set end_message to a farewell.\n\nAlways populate TODO_updates in every response with the current status of every item in planned_TODO.",
+                    "available_tools": {
+                        "internet_search": "Fetch up-to-date information from the web when the task requires current or real-world data",
+                        "RAG_search": "Retrieve relevant documents from the local knowledge base for domain-specific questions",
+                        "collect_human_input": "Ask the user one specific clarifying question when intent is genuinely ambiguous",
+                        "ready_for_answer": "Generate and deliver the final answer when all necessary information has been gathered",
+                        "the_planner": "Revise the TODO plan when the original plan is no longer valid — provide replan_instructions explaining what changed",
+                        "end": "End the session when the user asks to quit or exit, or when the user requests harmful, illegal, or unethical content — provide a brief end_message"
+                    },
+                    "knowledge_base_topics": "${knowledge_base_topics}"
+                }
+            ],
+            "nextState": "tool_router"
+        },
+        "tool_router": {
+            "function": "condition_check",
+            "args": [],
+            "nextState": [
+                {
+                    "conditionFunction": "check_global_variable",
+                    "args": [
+                        {
+                            "read_agent_decision": "${agent_decision}",
+                            "tool_to_use": "ready_for_answer"
+                        }
+                    ],
+                    "nextState": "Answer Question"
+                },
+                {
+                    "conditionFunction": "check_global_variable",
+                    "args": [
+                        {
+                            "read_agent_decision": "${agent_decision}",
+                            "tool_to_use": "internet_search"
+                        }
+                    ],
+                    "nextState": "Internet Search Handler"
+                },
+                {
+                    "conditionFunction": "check_global_variable",
+                    "args": [
+                        {
+                            "read_agent_decision": "${agent_decision}",
+                            "tool_to_use": "RAG_search"
+                        }
+                    ],
+                    "nextState": "RAG Search Handler"
+                },
+                {
+                    "conditionFunction": "check_global_variable",
+                    "args": [
+                        {
+                            "read_agent_decision": "${agent_decision}",
+                            "tool_to_use": "the_planner"
+                        }
+                    ],
+                    "nextState": "Replanner Handler"
+                },
+                {
+                    "conditionFunction": "check_global_variable",
+                    "args": [
+                        {
+                            "read_agent_decision": "${agent_decision}",
+                            "tool_to_use": "end"
+                        }
+                    ],
+                    "nextState": "End"
+                },
+                {
+                    "conditionFunction": "check_global_variable",
+                    "args": [
+                        {
+                            "read_agent_decision": "${agent_decision}",
+                            "tool_to_use": "fallback_agent"
+                        }
+                    ],
+                    "nextState": "Fallback Agent Handler"
+                },
+                {
+                    "conditionFunction": true,
+                    "args": [],
+                    "nextState": "Collect More Information Handler"
+                }
+            ]
+        },
+        "Answer Question": {
+            "function": "response_generator",
+            "args": [
+                {
+                    "model": "${agent_model}",
+                    "api_key": "${agent_api_key}",
+                    "response_language": "English",
+                    "instructions_prompt": "You are a knowledgeable and articulate AI assistant. Your task is to generate a final response to the user based on the information gathered by the agent. The response must be accurate, complete, and directly address the user's question. Structure the response clearly — use paragraphs, bullet points, or numbered lists where appropriate. Cite sources or reference the type of information used when relevant. Never hallucinate information. If the gathered data is insufficient for a complete answer, acknowledge the limitation honestly.",
+                    "response_tone": {
+                        "personality": "Knowledgeable and reliable",
+                        "response_style": "Structured and detailed",
+                        "formality": "Professional but approachable",
+                        "communication_style": "Clear and direct"
+                    }
+                }
+            ],
+            "nextState": "the brain"
+        },
+        "RAG Search Handler": {
+            "function": "RAG_search",
+            "args": [
+                {
+                    "api_key": "${embedding_api_key}",
+                    "embedding_model": "${embedding_model}",
+                    "query_language": "English",
+                    "retrieval_instructions": "Retrieve the most relevant document chunks that directly address the query. Prioritise specificity over breadth."
+                }
+            ],
+            "nextState": "the brain"
+        },
+        "Internet Search Handler": {
+            "function": "internet_search",
+            "args": [
+                {
+                    "api_key": "${tavily_api_key}",
+                    "search_depth": "basic",
+                    "query_language": "English",
+                    "search_instructions": "Search for precise, current information. Use the query provided by the brain as-is."
+                }
+            ],
+            "nextState": "the brain"
+        },
+        "Replanner Handler": {
+            "function": "the_planner",
+            "args": [
+                {
+                    "api_key": "${agent_api_key}",
+                    "model": "${agent_model}",
+                    "knowledge_base_topics": "${knowledge_base_topics}"
+                }
+            ],
+            "nextState": "the brain"
+        },
+        "Fallback Agent Handler": {
+            "function": "fallback_agent",
+            "args": [
+                {
+                    "api_key": "${agent_api_key}",
+                    "model": "${agent_model}"
+                }
+            ],
+            "nextState": "Collect More Information Handler"
+        },
+        "Collect More Information Handler": {
+            "function": "collect_human_input",
+            "args": [],
+            "nextState": "the brain"
+        },
+        "End": {
+            "function": "end",
+            "args": ["successful"],
+            "nextState": "EndFinal"
+        }
+    }
+}

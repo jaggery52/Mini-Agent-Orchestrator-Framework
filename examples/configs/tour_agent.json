@@ -1,0 +1,197 @@
+{
+    "stateMachine": {
+        "Start": {
+            "function": "start",
+            "args": [
+                {
+                    "agent_setup_prompt_flag": "true",
+                    "agent_setup_prompt": "You are TourCraft, an expert tour-planning assistant built on a state-machine-driven agent framework.\n\nIMPORTANT — know your audience: you are NOT talking to an end traveler. You are assisting a PROFESSIONAL TRAVEL AGENT (the user) who is using you to tailor a tour package for THEIR customer. Speak to the travel agent as a knowledgeable colleague. Refer to the traveler as 'your customer' or 'the client'. Your output is a plan the agent will present to their customer, so keep it polished and presentation-ready.\n\nThe Planner has already broken the agent's request into a structured TODO list — work through it step by step, using the available tools to gather what you need and complete each task.\n\n## Your Core Principles\n\n1. **Gather the essentials first.** Before recommending anything, make sure you know: destination or region, travel dates or season, trip duration, group size and composition (adults / children / ages), budget range, the customer's interests (beaches, culture, adventure, luxury, family, honeymoon, wildlife...), and any constraints (dietary, accessibility, mobility, must-sees). Ask for the SINGLE most important missing detail at a time via collect_human_input — never bundle several questions.\n2. **Ground every recommendation in the catalog.** Use RAG_search to find the company's actual tour packages, hotels, durations, and prices that match the customer's needs. Only recommend offerings that exist in the knowledge base — never invent packages, hotels, or prices.\n3. **Use the web sparingly and only for live context.** Use internet_search ONLY for current, time-sensitive information the catalog cannot provide — weather for the travel month, public holidays or festivals, or basic visa/entry notes. Never use it to source tour packages.\n4. **Think step by step.** Before choosing a tool, reason about what you already know about the customer and what is still missing.\n5. **Track your progress.** After every decision, update TODO_updates to reflect the current status (done / in progress / not done / not relevant) of every item in the plan.\n6. **Know when to replan.** If the agent changes the brief mid-conversation (new destination, different budget, added travelers), call the_planner with clear replan_instructions explaining what changed.\n7. **Know when to stop.** Once you have enough to assemble a solid, tailored plan, choose ready_for_answer. Do not over-ask or run unnecessary tools.\n8. **Be transparent.** In every decision_taken, explain what you know about the customer, what is still missing, and why you chose this tool.\n\n## Tools at Your Disposal\n\n### internet_search\nUse only for current, time-sensitive context that supports the plan: weather/climate for the travel month, festivals or public holidays that affect timing, or basic visa/entry guidance. Provide a precise query. Never use this to invent or source tour packages.\n\n### RAG_search\nUse to search the company's tour-package catalog (pre-loaded knowledge base) for packages, itineraries, hotels, durations, prices, inclusions, and add-ons that match the customer's needs. Provide a clear, focused retrieval query (e.g. 'Bali honeymoon package price and hotels').\n\n### collect_human_input\nUse when you need a specific detail from the travel agent about their customer before you can proceed. Ask the single most important question — never several at once.\n\n### ready_for_answer\nUse when you have gathered enough to assemble a tailored tour plan. Provide detailed response_instructions describing what the final plan should contain.\n\n### the_planner\nUse when the brief changes and the plan must be revised. Always provide replan_instructions explaining what changed.\n\n### end\nUse when the travel agent indicates they are finished or asks to stop, or when a request is illegal, harmful, or unethical. Populate end_message with a brief farewell or refusal.\n\n## TODO_updates\n\nEvery response MUST include TODO_updates — a list of all planned tasks with their current status:\n- \"done\": task is fully complete\n- \"in progress\": currently being worked on\n- \"not done\": not yet started\n- \"not relevant\": intentionally skipped\n\nBase TODO_updates on the planned_TODO list from updated_by_the_planner in your context.\n\n## Memory Structure\n\nAt every step you will see the current state of the agent's memory:\n- **updated_by_the_planner**: The current plan — high_level_goal and planned_TODO list.\n- **user_query**: The travel agent's original request.\n- **updated_by_the_brain**: History of all your previous decisions and TODO progress.\n- **updated_by_tools**: The most recent output from each tool that has been executed.\n\nDo not repeat tool calls with the same query unless the previous result was empty or clearly insufficient.",
+                    "docs_folder": "docs/",
+                    "knowledge_base_topics": "The knowledge base is the Wanderlust Voyages tour-package catalog (2026 season). It contains, for each destination (Thailand, Japan, Switzerland, Kenya, and Bali/Indonesia): package names and booking codes, trip duration, best travel season, price per person and pricing tier, the ideal traveler type, itinerary highlights, hotel options by tier with real hotel names, what is included and excluded, and optional add-ons. It also covers company-wide policies: child discounts, single supplements, group discounts, deposits, lead times, customization, and visa notes. ALWAYS use RAG_search for any question about packages, itineraries, hotels, prices, inclusions, or add-ons — this catalog is the single source of truth for what the company offers."
+                }
+            ],
+            "nextState": "human_input"
+        },
+        "human_input": {
+            "function": "collect_human_input",
+            "args": [],
+            "nextState": "Planner"
+        },
+        "Planner": {
+            "function": "the_planner",
+            "args": [
+                {
+                    "api_key": "${agent_api_key}",
+                    "model": "${agent_model}",
+                    "knowledge_base_topics": "${knowledge_base_topics}"
+                }
+            ],
+            "nextState": "the brain"
+        },
+        "the brain": {
+            "function": "the_brain",
+            "args": [
+                {
+                    "agent_api": "${agent_api_key}",
+                    "agent_model": "${agent_model}",
+                    "conversation_language": "English",
+                    "analyze_instructions_prompt": "Your execution roadmap is in updated_by_the_planner.planned_TODO. Each step has a tool field — follow it.\n\nTODO status meanings:\n- not done: step has not been reached yet\n- in progress: step is currently being worked on (tool was called, goal not yet confirmed)\n- done: step was executed and its objective was fully achieved\n- not relevant: step was intentionally skipped — its condition was not met or it became unnecessary\n\nDecision rules (follow strictly in this order):\n0. HARMFUL/ILLEGAL CHECK (RUNS BEFORE ALL OTHER RULES): Before reading planned_TODO or making any other decision, check user_query and the most recent actor='user' entry in conversation_history. If the request involves illegal activity, doing something 'without permission' or 'without authorization', bypassing legal requirements, or harmful or unethical content — immediately use 'end' with a refusal end_message. Mark every TODO item as 'not relevant'. Do not proceed to any other rule.\n0.5. PLAN DELIVERED CHECK (RUNS BEFORE RULE 1): Check the context field answer_delivered. If it is true, the tour plan has been delivered to the travel agent. You MUST immediately: (a) mark ALL TODO items as 'done' in TODO_updates; (b) set tool_to_use to 'collect_human_input'; (c) set follow_up_question to a contextual question that builds on the plan just delivered — e.g. offer to adjust the budget, swap a hotel tier, extend the trip, add an excursion mentioned in the plan, or start a plan for another customer. Do NOT choose ready_for_answer. This rule overrides Rules 1 through 6.\n1. Find the first TODO item with status 'not done' or 'in progress'. Check its tool field — that is the tool you should call next.\n2. Before recommending anything, make sure the essentials are known (destination/region, dates or season, duration, group size & composition, budget, interests, constraints). If a critical detail is missing, use collect_human_input to ask for the single most important one. Do not bundle multiple questions.\n3. Use RAG_search to find matching packages, hotels, and prices in the catalog before assembling a plan. Only recommend offerings that appear in the catalog — never invent packages or prices.\n4. Use internet_search only for time-sensitive context (weather for the travel month, festivals/holidays, visa basics). If a planned internet_search step is not needed, mark it 'not relevant'.\n5. A step is only 'done' when its objective is fully achieved — collect_human_input stays 'in progress' until the agent's answer is complete and useful.\n6. IMPORTANT — Before choosing ready_for_answer: scan every remaining 'not done' step and decide explicitly for each one whether it is still needed. Mark anything unneeded 'not relevant' in the SAME TODO_updates response. There must be no 'not done' items left when you choose ready_for_answer.\n7. If the agent changes the brief, use the_planner with replan_instructions explaining what changed.\n8. END TOOL: Use end immediately (without calling any other tool first) when: (a) the travel agent asks to end, quit, exit, or stop; (b) the request is illegal, harmful, or unethical. For (b) set end_message to a polite refusal with no follow-up invitation. For (a) set end_message to a farewell.\n\nAlways populate TODO_updates in every response with the current status of every item in planned_TODO.",
+                    "available_tools": {
+                        "internet_search": "Fetch current, time-sensitive context the catalog cannot provide — weather for the travel month, festivals/holidays, or basic visa/entry notes. Never use it to source or invent tour packages",
+                        "RAG_search": "Search the company's tour-package catalog for packages, itineraries, hotels, durations, prices, inclusions, and add-ons that match the customer's needs",
+                        "collect_human_input": "Ask the travel agent one specific question about their customer's needs (destination, dates, duration, group, budget, interests, or constraints) when a critical detail is missing",
+                        "ready_for_answer": "Assemble and deliver the final tailored tour plan once enough information has been gathered",
+                        "the_planner": "Revise the plan when the travel agent changes the brief — provide replan_instructions explaining what changed",
+                        "end": "End the session when the travel agent is finished or asks to stop, or when a request is harmful, illegal, or unethical — provide a brief end_message"
+                    },
+                    "knowledge_base_topics": "${knowledge_base_topics}"
+                }
+            ],
+            "nextState": "tool_router"
+        },
+        "tool_router": {
+            "function": "condition_check",
+            "args": [],
+            "nextState": [
+                {
+                    "conditionFunction": "check_global_variable",
+                    "args": [
+                        {
+                            "read_agent_decision": "${agent_decision}",
+                            "tool_to_use": "ready_for_answer"
+                        }
+                    ],
+                    "nextState": "Answer Question"
+                },
+                {
+                    "conditionFunction": "check_global_variable",
+                    "args": [
+                        {
+                            "read_agent_decision": "${agent_decision}",
+                            "tool_to_use": "internet_search"
+                        }
+                    ],
+                    "nextState": "Internet Search Handler"
+                },
+                {
+                    "conditionFunction": "check_global_variable",
+                    "args": [
+                        {
+                            "read_agent_decision": "${agent_decision}",
+                            "tool_to_use": "RAG_search"
+                        }
+                    ],
+                    "nextState": "RAG Search Handler"
+                },
+                {
+                    "conditionFunction": "check_global_variable",
+                    "args": [
+                        {
+                            "read_agent_decision": "${agent_decision}",
+                            "tool_to_use": "the_planner"
+                        }
+                    ],
+                    "nextState": "Replanner Handler"
+                },
+                {
+                    "conditionFunction": "check_global_variable",
+                    "args": [
+                        {
+                            "read_agent_decision": "${agent_decision}",
+                            "tool_to_use": "end"
+                        }
+                    ],
+                    "nextState": "End"
+                },
+                {
+                    "conditionFunction": "check_global_variable",
+                    "args": [
+                        {
+                            "read_agent_decision": "${agent_decision}",
+                            "tool_to_use": "fallback_agent"
+                        }
+                    ],
+                    "nextState": "Fallback Agent Handler"
+                },
+                {
+                    "conditionFunction": true,
+                    "args": [],
+                    "nextState": "Collect More Information Handler"
+                }
+            ]
+        },
+        "Answer Question": {
+            "function": "response_generator",
+            "args": [
+                {
+                    "model": "${agent_model}",
+                    "api_key": "${agent_api_key}",
+                    "response_language": "English",
+                    "instructions_prompt": "You are producing a polished, presentation-ready TOUR PLAN that a professional travel agent will present to their customer. Base the plan ONLY on the packages, hotels, prices, and add-ons present in the gathered knowledge-base data — never invent offerings, hotel names, or prices. Structure the plan clearly with these sections:\n1. **Trip Summary** — destination, travel dates or season, duration, group size, and how it fits the stated budget.\n2. **Recommended Package** — the matching package name and booking code from the catalog (or a sensible combination of catalog packages for multi-destination trips).\n3. **Itinerary Outline** — a day-by-day or segment-by-segment outline drawn from the package highlights.\n4. **Accommodation** — the recommended hotel option(s) with real hotel names and tier from the catalog.\n5. **Estimated Price** — per-person price from the catalog, noting what is included and excluded, and any relevant discounts (child, group) or supplements (single).\n6. **Optional Add-ons** — a couple of relevant upgrades from the catalog.\nWrite for the travel agent as a colleague (refer to 'your customer'). If a needed detail is missing from the gathered data, note it honestly and suggest the agent confirm it with the customer. Do not include meta-commentary, tool names, or internal reasoning.",
+                    "response_tone": {
+                        "personality": "Knowledgeable travel-industry colleague",
+                        "response_style": "Structured, presentation-ready itinerary",
+                        "formality": "Professional B2B, warm and confident",
+                        "communication_style": "Clear, concrete, and concise"
+                    }
+                }
+            ],
+            "nextState": "the brain"
+        },
+        "RAG Search Handler": {
+            "function": "RAG_search",
+            "args": [
+                {
+                    "api_key": "${embedding_api_key}",
+                    "embedding_model": "${embedding_model}",
+                    "query_language": "English",
+                    "retrieval_instructions": "Retrieve the catalog chunks that best match the customer's destination, theme, and budget. Prioritise specific package, hotel, and price details over general notes."
+                }
+            ],
+            "nextState": "the brain"
+        },
+        "Internet Search Handler": {
+            "function": "internet_search",
+            "args": [
+                {
+                    "api_key": "${tavily_api_key}",
+                    "search_depth": "basic",
+                    "query_language": "English",
+                    "search_instructions": "Search for precise, current context only (weather for the travel month, festivals/holidays, visa basics). Use the query provided by the brain as-is."
+                }
+            ],
+            "nextState": "the brain"
+        },
+        "Replanner Handler": {
+            "function": "the_planner",
+            "args": [
+                {
+                    "api_key": "${agent_api_key}",
+                    "model": "${agent_model}",
+                    "knowledge_base_topics": "${knowledge_base_topics}"
+                }
+            ],
+            "nextState": "the brain"
+        },
+        "Fallback Agent Handler": {
+            "function": "fallback_agent",
+            "args": [
+                {
+                    "api_key": "${agent_api_key}",
+                    "model": "${agent_model}"
+                }
+            ],
+            "nextState": "Collect More Information Handler"
+        },
+        "Collect More Information Handler": {
+            "function": "collect_human_input",
+            "args": [],
+            "nextState": "the brain"
+        },
+        "End": {
+            "function": "end",
+            "args": ["successful"],
+            "nextState": "EndFinal"
+        }
+    }
+}
