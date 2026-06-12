@@ -83,8 +83,13 @@ class BrainStates:
             session.send_sync({
                 "type": "agent_thinking",
                 "source": "brain",
+                "step": current_step,
                 "thought": brain_output.decision_taken,
                 "decision": _DECISION_LABELS.get(effective_tool, effective_tool),
+                "tool": effective_tool,
+                "todo_updates": [
+                    todo_update.model_dump() for todo_update in brain_output.TODO_updates
+                ] if brain_output.TODO_updates else [],
             })
 
         tool_params = brain_output.tool_parameters

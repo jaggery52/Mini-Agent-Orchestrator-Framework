@@ -222,3 +222,5 @@ chroma_db/
 
 # Misc
 misc/
+# Build-time embedding key secret (never commit)
+openai_key.txt

@@ -53,7 +53,11 @@ class ToolStates:
                 "type": "agent_thinking",
                 "source": "planner",
                 "goal": result.high_level_goal,
-                "plan": [{"title": t.title, "description": t.description} for t in result.planned_TODO],
+                "replan": is_replan,
+                "plan": [
+                    {"title": t.title, "description": t.description, "tool": t.tool}
+                    for t in result.planned_TODO
+                ],
             })
 
     def internet_search(self, args_dict: dict) -> None:
@@ -66,7 +70,7 @@ class ToolStates:
 
         session = get_session()
         if session:
-            session.send_sync({"type": "agent_thinking", "source": "tool", "message": "Searching the web for information..."})
+            session.send_sync({"type": "agent_thinking", "source": "tool", "tool": "internet_search", "message": "Searching the web for information..."})
 
         search_depth = args_dict.get("search_depth", "basic")
         logging.info(f"[INTERNET_SEARCH] Searching: \"{query}\" (depth: {search_depth})")
@@ -85,6 +89,8 @@ class ToolStates:
     def RAG_search(self, args_dict: dict) -> None:
         api_key         = args_dict.get("api_key")        or StateMemory.getVariable("embedding_api_key")
         embedding_model = args_dict.get("embedding_model") or StateMemory.getVariable("embedding_model")
+        collection_name = args_dict.get("collection_name") or StateMemory.getVariable("collection_name")
+        docs_folder     = args_dict.get("docs_folder")     or StateMemory.getVariable("docs_folder")
 
         query = self._get_latest_brain_param("query")
         if not query:
@@ -93,10 +99,15 @@ class ToolStates:
 
         session = get_session()
         if session:
-            session.send_sync({"type": "agent_thinking", "source": "tool", "message": "Extracting data from knowledge base..."})
+            session.send_sync({"type": "agent_thinking", "source": "tool", "tool": "RAG_search", "message": "Extracting data from knowledge base..."})
 
-        logging.info(f"[RAG_SEARCH] Searching knowledge base: \"{query}\"")
-        rag = RagSearch(openai_api_key=api_key, embedding_model=embedding_model)
+        logging.info(f"[RAG_SEARCH] Searching collection '{collection_name}': \"{query}\"")
+        rag = RagSearch(
+            openai_api_key=api_key,
+            collection_name=collection_name,
+            docs_folder=docs_folder,
+            embedding_model=embedding_model,
+        )
         rag.initialise()
         search_results = rag.search(query)
 
@@ -118,7 +129,7 @@ class ToolStates:
 
         session = get_session()
         if session:
-            session.send_sync({"type": "agent_thinking", "source": "tool", "message": "Preparing user's answer..."})
+            session.send_sync({"type": "agent_thinking", "source": "tool", "tool": "response_generator", "message": "Preparing user's answer..."})
 
         logging.info("[RESPONSE_GENERATOR] Generating final answer for user")
 
@@ -173,6 +184,7 @@ class ToolStates:
             session.send_sync({
                 "type": "agent_thinking",
                 "source": "tool",
+                "tool": "fallback_agent",
                 "message": "Preparing a follow-up question...",
             })
 

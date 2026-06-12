@@ -34,6 +34,7 @@ class StateMemory:
                 "agent_setup_prompt": {"dataType": "string", "value": ""},
                 "user_query": {"dataType": "string", "value": ""},
                 "docs_folder": {"dataType": "string", "value": "knowledge_base/"},
+                "collection_name": {"dataType": "string", "value": ""},
                 "knowledge_base_topics": {"dataType": "string", "value": ""},
                 "conversation_history": {"dataType": "list", "value": []},
                 "system_events": {"dataType": "list", "value": []},

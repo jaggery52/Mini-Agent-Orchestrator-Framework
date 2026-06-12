@@ -15,6 +15,15 @@ class SessionContext:
         self.input_queue: queue.Queue = queue.Queue()
         self.should_stop: bool = False
 
+        # Per-connection config supplied by the client in the `init` handshake.
+        # The server holds no LLM/search keys of its own — these drive every state.
+        self.usecase: str = ""
+        self.collection_name: str = ""
+        self.openai_api_key: str = ""
+        self.tavily_api_key: str = ""
+        self.agent_model: str = ""
+        self.embedding_model: str = ""
+
     def send_sync(self, message: dict) -> None:
         try:
             future = asyncio.run_coroutine_threadsafe(

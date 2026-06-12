@@ -6,7 +6,6 @@ from typing import Any, Dict, List
 
 from mini_agent.engine.state_memory import StateMemory
 from mini_agent.session import get_session
-from mini_agent.settings import DEFAULT_MODEL, EMBEDDING_MODEL, OPENAI_API_KEY, TAVILY_API_KEY
 from mini_agent.states.custom_conditions import CustomConditions
 from mini_agent.states.custom_states import CustomStates
 
@@ -31,12 +30,16 @@ class StateMachine:
         self.conditions = CustomConditions()
         self.states = CustomStates()
 
-        StateMemory.setVariable("agent_model",       DEFAULT_MODEL)
-        StateMemory.setVariable("agent_api_key",     OPENAI_API_KEY)
-        StateMemory.setVariable("embedding_model",   EMBEDDING_MODEL)
-        StateMemory.setVariable("embedding_api_key", OPENAI_API_KEY)
-        StateMemory.setVariable("tavily_api_key",    TAVILY_API_KEY)
-        logging.debug("[StateMachine] Session config seeded from env")
+        # Seed per-session memory from the WS handshake (set on the session), NOT env.
+        session = get_session()
+        StateMemory.setVariable("agent_model",       session.agent_model)
+        StateMemory.setVariable("agent_api_key",     session.openai_api_key)
+        StateMemory.setVariable("embedding_model",   session.embedding_model)
+        StateMemory.setVariable("embedding_api_key", session.openai_api_key)
+        StateMemory.setVariable("tavily_api_key",    session.tavily_api_key)
+        StateMemory.setVariable("collection_name",   session.collection_name)
+        StateMemory.setVariable("docs_folder",       f"knowledge_base/{session.usecase}/")
+        logging.debug("[StateMachine] Session config seeded from WS handshake")
         logging.debug(f"[StateMachine] Loaded config from {config_json_path}")
 
     def __parse_function_args(self, arguments: List[Any]) -> List[Any]:

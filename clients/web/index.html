@@ -7,30 +7,31 @@
   <style>
     :root {
       color-scheme: light;
-      --bg: #f6f7f8;
+      --bg: #f3f5f7;
       --panel: #ffffff;
       --border: #d9dde3;
       --text: #1f2933;
       --muted: #67717f;
       --muted-bg: #f0f2f5;
-      --agent: #ffffff;
       --user: #dcecff;
       --final: #ecf8ef;
       --error: #b42318;
       --error-bg: #fff0ed;
       --accent: #1d4ed8;
+      --accent-soft: #eef2ff;
+      --accent-border: #c7d2fe;
+      --active-glow: rgba(29, 78, 216, 0.35);
+      --done: #16a34a;
+      --done-bg: #ecf8ef;
+      --progress: #d97706;
+      --progress-bg: #fef3c7;
+      --skipped: #9ca3af;
       --disabled: #a8b0bb;
     }
 
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
-    html,
-    body {
-      height: 100%;
-      margin: 0;
-    }
+    html, body { height: 100%; margin: 0; }
 
     body {
       background: var(--bg);
@@ -42,10 +43,10 @@
 
     .app {
       display: grid;
-      grid-template-columns: minmax(280px, 0.95fr) minmax(360px, 1.35fr);
-      gap: 16px;
+      grid-template-columns: 250px minmax(300px, 1fr) minmax(360px, 1.45fr);
+      gap: 14px;
       height: 100%;
-      padding: 16px;
+      padding: 14px;
     }
 
     .panel {
@@ -54,7 +55,7 @@
       flex-direction: column;
       overflow: hidden;
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: 10px;
       background: var(--panel);
     }
 
@@ -62,16 +63,16 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
-      min-height: 56px;
-      padding: 12px 14px;
+      gap: 10px;
+      min-height: 52px;
+      padding: 10px 14px;
       border-bottom: 1px solid var(--border);
     }
 
     .panel-title {
       margin: 0;
-      font-size: 15px;
-      font-weight: 650;
+      font-size: 14.5px;
+      font-weight: 700;
     }
 
     .status {
@@ -79,7 +80,7 @@
       align-items: center;
       gap: 8px;
       color: var(--muted);
-      font-size: 13px;
+      font-size: 12.5px;
       white-space: nowrap;
     }
 
@@ -89,78 +90,477 @@
       border-radius: 999px;
       background: var(--disabled);
     }
-
-    .status-dot.connected {
-      background: #16a34a;
-    }
-
-    .status-dot.error {
-      background: var(--error);
-    }
+    .status-dot.connected { background: #16a34a; }
+    .status-dot.error { background: var(--error); }
 
     .scroll-area {
       min-height: 0;
       flex: 1;
       overflow-y: auto;
-      padding: 14px;
+      padding: 12px;
     }
 
-    .thinking-log {
+    /* ============================ FLOW PANEL ============================ */
+
+    .flow-canvas {
+      min-height: 0;
+      flex: 1;
+      overflow-y: auto;
       display: flex;
       flex-direction: column;
-      gap: 10px;
-      background: #fbfbfc;
+      align-items: center;
+      padding: 14px 12px 10px;
     }
 
-    .thinking-item {
-      border: 1px solid var(--border);
+    .flow-node {
+      position: relative;
+      width: 100%;
+      max-width: 200px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      border: 1.5px solid var(--border);
+      border-radius: 9px;
+      background: #fbfbfc;
+      padding: 8px 10px;
+      transition: background 0.3s ease, border-color 0.3s ease,
+                  box-shadow 0.3s ease, transform 0.3s ease, opacity 0.4s ease;
+    }
+
+    .flow-node .node-icon {
+      flex: 0 0 auto;
+      width: 26px;
+      height: 26px;
+      display: grid;
+      place-items: center;
       border-radius: 7px;
       background: var(--muted-bg);
-      color: var(--muted);
-      padding: 10px;
+      font-size: 14px;
+      transition: background 0.3s ease;
     }
 
-    .thinking-item strong {
-      display: block;
-      margin-bottom: 5px;
-      color: #384252;
-      font-size: 13px;
-    }
-
-    .thinking-item.session-complete {
-      border-color: #bbf7d0;
-      background: #ecf8ef;
-      color: #14532d;
-    }
-
-    .thinking-item.session-complete strong {
-      color: #166534;
-    }
-
-    .thinking-item p {
-      margin: 0;
-    }
-
-    .thinking-item ol {
-      margin: 8px 0 0;
-      padding-left: 22px;
-    }
-
-    .thinking-item li + li {
-      margin-top: 6px;
-    }
-
-    .decision {
-      display: inline-block;
-      margin-top: 8px;
-      border: 1px solid #c7d2fe;
-      border-radius: 999px;
-      background: #eef2ff;
-      color: #3730a3;
-      padding: 2px 8px;
-      font-size: 12px;
+    .flow-node .node-label {
+      flex: 1;
+      font-size: 12.5px;
       font-weight: 650;
+      color: #384252;
     }
+
+    .flow-node .node-count {
+      flex: 0 0 auto;
+      min-width: 18px;
+      height: 18px;
+      display: none;
+      place-items: center;
+      border-radius: 999px;
+      background: var(--muted-bg);
+      color: var(--muted);
+      font-size: 10.5px;
+      font-weight: 700;
+      padding: 0 5px;
+      transition: transform 0.25s ease;
+    }
+    .flow-node .node-count.visible { display: grid; }
+    .flow-node .node-count.bump { transform: scale(1.35); }
+
+    /* node states */
+    .flow-node.active {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+      box-shadow: 0 0 0 4px var(--active-glow);
+      transform: scale(1.04);
+      animation: nodePulse 1.4s ease-in-out infinite;
+    }
+    .flow-node.active .node-icon { background: var(--accent); color: #fff; }
+    .flow-node.active .node-label { color: var(--accent); }
+
+    .flow-node.next {
+      border-color: var(--accent-border);
+      border-style: dashed;
+      background: var(--accent-soft);
+    }
+
+    .flow-node.flash {
+      border-color: var(--done);
+      background: var(--done-bg);
+      box-shadow: 0 0 0 4px rgba(22, 163, 74, 0.3);
+    }
+
+    .flow-node.dimmed { opacity: 0.45; }
+
+    @keyframes nodePulse {
+      0%, 100% { box-shadow: 0 0 0 3px var(--active-glow); }
+      50%      { box-shadow: 0 0 0 7px rgba(29, 78, 216, 0.12); }
+    }
+
+    /* connectors between pipeline stages */
+    .flow-connector {
+      position: relative;
+      width: 2px;
+      height: 22px;
+      flex: 0 0 auto;
+      background: var(--border);
+      transition: background 0.3s ease;
+    }
+
+    .flow-connector.flowing { background: var(--accent-border); }
+
+    .flow-connector .dot {
+      position: absolute;
+      left: 50%;
+      top: 0;
+      width: 7px;
+      height: 7px;
+      margin-left: -3.5px;
+      border-radius: 999px;
+      background: var(--accent);
+      opacity: 0;
+    }
+
+    .flow-connector.flowing .dot {
+      animation: dotTravel 0.55s ease-in-out 2;
+    }
+
+    @keyframes dotTravel {
+      0%   { top: -4px; opacity: 0; }
+      15%  { opacity: 1; }
+      85%  { opacity: 1; }
+      100% { top: calc(100% - 3px); opacity: 0; }
+    }
+
+    /* tool fan: 2x2 grid hanging off the brain */
+    .tool-fan {
+      width: 100%;
+      max-width: 216px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      padding: 4px 0;
+    }
+
+    .tool-fan .flow-node {
+      max-width: none;
+      padding: 7px 8px;
+      flex-direction: column;
+      gap: 4px;
+      text-align: center;
+    }
+    .tool-fan .flow-node .node-label { font-size: 11px; }
+    .tool-fan .flow-node .node-count {
+      position: absolute;
+      top: -6px;
+      right: -6px;
+    }
+
+    .flow-ticker {
+      border-top: 1px solid var(--border);
+      padding: 8px 12px;
+      min-height: 38px;
+      color: var(--muted);
+      font-size: 11.5px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .flow-ticker .ticker-pulse {
+      flex: 0 0 auto;
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: var(--disabled);
+    }
+    .flow-ticker.live .ticker-pulse {
+      background: var(--accent);
+      animation: nodePulse 1.2s ease-in-out infinite;
+    }
+
+    /* ============================ PLAN PANEL ============================ */
+
+    /* Pinned upper region: holds the plan/TODO card. Does not move when the brain
+       feed grows; scrolls within itself only if the plan is taller than the region. */
+    .plan-region {
+      flex: 0 1 auto;
+      max-height: 55%;
+      overflow-y: auto;
+      padding: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* Lower region: fills the remaining height; only .brain-scroll scrolls. */
+    .brain-region {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .brain-region[hidden] { display: none; }
+
+    .brain-scroll {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 0 12px 12px;
+    }
+
+    .plan-empty {
+      color: var(--muted);
+      font-size: 13px;
+      padding: 8px 4px;
+    }
+
+    .plan-card {
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      background: #fbfbfc;
+      padding: 12px;
+      margin-bottom: 14px;
+      animation: cardIn 0.35s ease;
+    }
+
+    @keyframes cardIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .plan-card .plan-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+
+    .plan-card .plan-version {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .plan-card .plan-version.revised { color: var(--progress); }
+
+    .plan-card .plan-goal {
+      margin: 0 0 10px;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: #27303c;
+    }
+
+    .progress-track {
+      height: 6px;
+      border-radius: 999px;
+      background: var(--muted-bg);
+      overflow: hidden;
+      margin-bottom: 4px;
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--accent), #16a34a);
+      transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .progress-label {
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+
+    .todo-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+
+    .todo-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 9px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      padding: 8px 9px;
+      cursor: pointer;
+      transition: border-color 0.35s ease, background 0.35s ease, opacity 0.35s ease;
+      animation: cardIn 0.3s ease both;
+    }
+
+    .todo-item .todo-status {
+      flex: 0 0 auto;
+      width: 20px;
+      height: 20px;
+      display: grid;
+      place-items: center;
+      border-radius: 999px;
+      border: 2px solid var(--border);
+      background: #fff;
+      color: transparent;
+      font-size: 11px;
+      font-weight: 800;
+      margin-top: 1px;
+      transition: border-color 0.35s ease, background 0.35s ease,
+                  color 0.35s ease, transform 0.35s ease;
+    }
+
+    .todo-item .todo-body { flex: 1; min-width: 0; }
+
+    .todo-item .todo-title-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .todo-item .todo-title {
+      font-size: 12.5px;
+      font-weight: 650;
+      color: #27303c;
+      transition: color 0.35s ease;
+    }
+
+    .todo-item .todo-tool {
+      font-size: 10px;
+      font-weight: 700;
+      border-radius: 999px;
+      padding: 1px 7px;
+      background: var(--accent-soft);
+      border: 1px solid var(--accent-border);
+      color: #3730a3;
+      white-space: nowrap;
+    }
+
+    .todo-item .todo-desc {
+      display: none;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 11.5px;
+    }
+    .todo-item.expanded .todo-desc { display: block; }
+
+    .todo-item .todo-note {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 11px;
+      font-style: italic;
+    }
+
+    /* todo states */
+    .todo-item.status-done {
+      border-color: #bbf7d0;
+      background: var(--done-bg);
+    }
+    .todo-item.status-done .todo-status {
+      border-color: var(--done);
+      background: var(--done);
+      color: #fff;
+      animation: statusPop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    .todo-item.status-progress {
+      border-color: #fcd34d;
+      background: #fffbeb;
+    }
+    .todo-item.status-progress .todo-status {
+      border-color: var(--progress);
+      color: var(--progress);
+      animation: spinHalf 1.1s linear infinite;
+    }
+
+    .todo-item.status-skipped { opacity: 0.55; }
+    .todo-item.status-skipped .todo-status {
+      border-color: var(--skipped);
+      color: var(--skipped);
+    }
+    .todo-item.status-skipped .todo-title {
+      text-decoration: line-through;
+      color: var(--muted);
+    }
+
+    @keyframes statusPop {
+      0%   { transform: scale(0.4); }
+      70%  { transform: scale(1.25); }
+      100% { transform: scale(1); }
+    }
+
+    @keyframes spinHalf {
+      from { transform: rotate(0deg); }
+      to   { transform: rotate(360deg); }
+    }
+
+    /* brain reasoning feed */
+    .feed-title {
+      flex: 0 0 auto;
+      margin: 0;
+      padding: 10px 12px 8px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .brain-feed {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .brain-entry {
+      position: relative;
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent-border);
+      border-radius: 7px;
+      background: #fbfbfc;
+      padding: 8px 10px;
+      transition: border-color 0.4s ease, background 0.4s ease;
+      animation: cardIn 0.3s ease both;
+    }
+
+    .brain-entry.latest {
+      border-left-color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .brain-entry .entry-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 4px;
+      flex-wrap: wrap;
+    }
+
+    .brain-entry .entry-step {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .brain-entry .entry-decision {
+      font-size: 10px;
+      font-weight: 700;
+      border-radius: 999px;
+      padding: 1px 7px;
+      background: var(--accent-soft);
+      border: 1px solid var(--accent-border);
+      color: #3730a3;
+    }
+
+    .brain-entry .entry-thought {
+      margin: 0;
+      font-size: 12px;
+      color: #384252;
+    }
+
+    /* ============================ CHAT PANEL ============================ */
 
     .chat-log {
       display: flex;
@@ -171,20 +571,13 @@
     .message {
       display: flex;
       flex-direction: column;
-      max-width: 78%;
+      max-width: 80%;
       gap: 4px;
+      animation: cardIn 0.25s ease both;
     }
 
-    .message.user {
-      align-self: flex-end;
-      align-items: flex-end;
-    }
-
-    .message.agent,
-    .message.system,
-    .message.error {
-      align-self: flex-start;
-    }
+    .message.user { align-self: flex-end; align-items: flex-end; }
+    .message.agent, .message.system, .message.error { align-self: flex-start; }
 
     .message-label {
       color: var(--muted);
@@ -194,33 +587,21 @@
 
     .bubble {
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: 9px;
       padding: 10px 12px;
       white-space: pre-wrap;
       overflow-wrap: anywhere;
+      background: #fff;
     }
 
-    .agent .bubble {
-      background: var(--agent);
-    }
-
-    .user .bubble {
-      border-color: #bfdbfe;
-      background: var(--user);
-    }
-
-    .system .bubble {
-      background: var(--muted-bg);
-      color: var(--muted);
-    }
-
+    .user .bubble { border-color: #bfdbfe; background: var(--user); }
+    .system .bubble { background: var(--muted-bg); color: var(--muted); }
     .final .bubble {
       border-color: #bbf7d0;
       background: var(--final);
       color: #14532d;
       font-weight: 520;
     }
-
     .error .bubble {
       border-color: #fecaca;
       background: var(--error-bg);
@@ -264,9 +645,7 @@
       white-space: nowrap;
     }
 
-    button:hover:not(:disabled) {
-      background: #1e40af;
-    }
+    button:hover:not(:disabled) { background: #1e40af; }
 
     button:disabled {
       border-color: #c2c8d1;
@@ -281,44 +660,230 @@
       background: #ffffff;
       color: var(--text);
     }
+    .secondary-button:hover:not(:disabled) { background: #f3f4f6; }
+    .secondary-button.visible { display: inline-flex; }
 
-    .secondary-button:hover:not(:disabled) {
-      background: #f3f4f6;
+    .settings-button {
+      border-color: var(--border);
+      background: #fff;
+      color: var(--text);
+      padding: 6px 10px;
+      font-size: 13px;
+    }
+    .settings-button:hover:not(:disabled) { background: #f3f4f6; }
+
+    @media (max-width: 1080px) {
+      .app {
+        grid-template-columns: 220px 1fr;
+        grid-template-rows: 1fr 1fr;
+      }
+      .panel.flow-panel { grid-row: 1 / 3; }
     }
 
-    .secondary-button.visible {
-      display: inline-flex;
-    }
-
-    @media (max-width: 780px) {
+    @media (max-width: 720px) {
       .app {
         grid-template-columns: 1fr;
-        grid-template-rows: minmax(220px, 38vh) minmax(360px, 1fr);
+        grid-template-rows: auto minmax(220px, 34vh) minmax(320px, 1fr);
         padding: 10px;
       }
-
-      .message {
-        max-width: 88%;
-      }
+      .panel.flow-panel { grid-row: auto; max-height: 300px; }
+      .message { max-width: 90%; }
     }
+
+    /* ========================= CONNECTION DIALOG ========================= */
+
+    dialog#connectDialog {
+      width: min(440px, 92vw);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0;
+      background: var(--panel);
+      color: var(--text);
+    }
+
+    dialog#connectDialog::backdrop { background: rgba(15, 23, 42, 0.45); }
+
+    .dialog-body { padding: 18px 20px 20px; }
+    .dialog-body h2 { margin: 0 0 4px; font-size: 17px; }
+    .dialog-body p.hint { margin: 0 0 14px; color: var(--muted); font-size: 12.5px; }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 11px;
+    }
+
+    .field label {
+      font-size: 12.5px;
+      font-weight: 650;
+      color: #384252;
+    }
+
+    .field label .opt { color: var(--muted); font-weight: 400; }
+
+    .field input,
+    .field select {
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: #fff;
+      color: var(--text);
+      padding: 9px 10px;
+      font: inherit;
+    }
+
+    .field-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 11px;
+    }
+
+    .dialog-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 6px;
+    }
+
+    .dialog-actions .remember {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12.5px;
+      font-weight: 400;
+    }
+
+    .dialog-error {
+      margin: 0 0 12px;
+      display: none;
+      border: 1px solid #fecaca;
+      border-radius: 7px;
+      background: var(--error-bg);
+      color: var(--error);
+      padding: 8px 10px;
+      font-size: 12.5px;
+    }
+    .dialog-error.visible { display: block; }
   </style>
 </head>
 <body>
   <main class="app">
-    <section class="panel" aria-label="Agent thinking">
+
+    <!-- ======================= FLOW PANEL ======================= -->
+    <section class="panel flow-panel" aria-label="Agent flow">
       <header class="panel-header">
-        <h1 class="panel-title">Thinking</h1>
-        <span class="status" id="thinkingStatus">Waiting for agent activity</span>
+        <h1 class="panel-title">Agent Flow</h1>
       </header>
-      <div class="scroll-area thinking-log" id="thinkingLog" aria-live="polite"></div>
+
+      <div class="flow-canvas" id="flowCanvas">
+        <div class="flow-node" id="node-user" data-node="user">
+          <span class="node-icon">&#128100;</span>
+          <span class="node-label">User Input</span>
+          <span class="node-count">0</span>
+        </div>
+        <div class="flow-connector" id="conn-user-planner"><span class="dot"></span></div>
+
+        <div class="flow-node" id="node-planner" data-node="planner">
+          <span class="node-icon">&#128203;</span>
+          <span class="node-label">Planner</span>
+          <span class="node-count">0</span>
+        </div>
+        <div class="flow-connector" id="conn-planner-brain"><span class="dot"></span></div>
+
+        <div class="flow-node" id="node-brain" data-node="brain">
+          <span class="node-icon">&#129504;</span>
+          <span class="node-label">Brain</span>
+          <span class="node-count">0</span>
+        </div>
+        <div class="flow-connector" id="conn-brain-tools"><span class="dot"></span></div>
+
+        <div class="tool-fan">
+          <div class="flow-node" id="node-rag" data-node="rag">
+            <span class="node-icon">&#128218;</span>
+            <span class="node-label">RAG Search</span>
+            <span class="node-count">0</span>
+          </div>
+          <div class="flow-node" id="node-web" data-node="web">
+            <span class="node-icon">&#127760;</span>
+            <span class="node-label">Web Search</span>
+            <span class="node-count">0</span>
+          </div>
+          <div class="flow-node" id="node-ask" data-node="ask">
+            <span class="node-icon">&#10067;</span>
+            <span class="node-label">Ask User</span>
+            <span class="node-count">0</span>
+          </div>
+          <div class="flow-node" id="node-replan" data-node="replan">
+            <span class="node-icon">&#128260;</span>
+            <span class="node-label">Replan</span>
+            <span class="node-count">0</span>
+          </div>
+        </div>
+        <div class="flow-connector" id="conn-tools-answer"><span class="dot"></span></div>
+
+        <div class="flow-node" id="node-answer" data-node="answer">
+          <span class="node-icon">&#128172;</span>
+          <span class="node-label">Answer</span>
+          <span class="node-count">0</span>
+        </div>
+        <div class="flow-connector" id="conn-answer-end"><span class="dot"></span></div>
+
+        <div class="flow-node" id="node-end" data-node="end">
+          <span class="node-icon">&#127937;</span>
+          <span class="node-label">End</span>
+          <span class="node-count">0</span>
+        </div>
+      </div>
+
+      <div class="flow-ticker" id="flowTicker">
+        <span class="ticker-pulse"></span>
+        <span id="flowTickerText">Waiting for agent activity</span>
+      </div>
     </section>
 
+    <!-- ======================= PLAN PANEL ======================= -->
+    <section class="panel" aria-label="Plan and reasoning">
+      <header class="panel-header">
+        <h2 class="panel-title">Plan &amp; Reasoning</h2>
+        <span class="status" id="planStatus">No plan yet</span>
+      </header>
+
+      <!-- Pinned upper region: the plan/TODO card never scrolls with the reasoning feed.
+           It only scrolls within itself if the plan is taller than its region. -->
+      <div class="plan-region" id="planRegion">
+        <p class="plan-empty" id="planEmpty">The planner's structured plan and the brain's
+          live TODO progress will appear here once a session starts.</p>
+
+        <div class="plan-card" id="planCard" hidden>
+          <div class="plan-meta">
+            <span class="plan-version" id="planVersion">Plan v1</span>
+          </div>
+          <p class="plan-goal" id="planGoal"></p>
+          <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+          <div class="progress-label" id="progressLabel"></div>
+          <ul class="todo-list" id="todoList"></ul>
+        </div>
+      </div>
+
+      <!-- Lower region: brain reasoning with its own independent scrollbar. -->
+      <div class="brain-region" id="brainRegion" hidden>
+        <h3 class="feed-title">Brain reasoning</h3>
+        <div class="brain-scroll" id="brainScroll">
+          <div class="brain-feed" id="brainFeed"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================= CHAT PANEL ======================= -->
     <section class="panel" aria-label="Chat">
       <header class="panel-header">
         <h2 class="panel-title">Mini Agent</h2>
         <span class="status">
           <span class="status-dot" id="statusDot" aria-hidden="true"></span>
           <span id="connectionStatus">Disconnected</span>
+          <button type="button" class="settings-button" id="settingsButton">Connection</button>
           <button type="button" class="secondary-button" id="reconnectButton">Reconnect</button>
         </span>
       </header>
@@ -338,12 +903,98 @@
     </section>
   </main>
 
+  <dialog id="connectDialog">
+    <form id="connectForm" method="dialog" class="dialog-body">
+      <h2>Connect to the agent</h2>
+      <p class="hint">Your token, API keys and model names are sent in the WebSocket
+        <code>init</code> handshake. They are kept in this browser only.</p>
+
+      <p class="dialog-error" id="connectError"></p>
+
+      <div class="field">
+        <label for="fUrl">Server URL</label>
+        <input id="fUrl" type="text" autocomplete="off" placeholder="ws://localhost:80/ws">
+      </div>
+
+      <div class="field">
+        <label for="fToken">Access token <span class="opt">(SERVER_ACCESS_TOKEN)</span></label>
+        <input id="fToken" type="password" autocomplete="off" placeholder="server access token">
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="fUsecase">Usecase</label>
+          <select id="fUsecase">
+            <option value="tour_agency">tour_agency</option>
+            <option value="document_helper">document_helper</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="fCollection">Collection <span class="opt">(defaults to usecase)</span></label>
+          <input id="fCollection" type="text" autocomplete="off" placeholder="tour_agency">
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="fOpenai">OpenAI API key <span class="opt">(LLM + query embeddings)</span></label>
+        <input id="fOpenai" type="password" autocomplete="off" placeholder="sk-...">
+      </div>
+
+      <div class="field">
+        <label for="fTavily">Tavily API key <span class="opt">(optional — DuckDuckGo fallback)</span></label>
+        <input id="fTavily" type="password" autocomplete="off" placeholder="tvly-...">
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="fModel">Agent model</label>
+          <input id="fModel" type="text" autocomplete="off" placeholder="gpt-4.1-mini">
+        </div>
+        <div class="field">
+          <label for="fEmbed">Embedding model</label>
+          <input id="fEmbed" type="text" autocomplete="off" placeholder="text-embedding-3-small">
+        </div>
+      </div>
+
+      <div class="dialog-actions">
+        <label class="remember">
+          <input type="checkbox" id="fRemember" checked>
+          Remember on this browser
+        </label>
+        <button type="submit" id="connectSubmit">Connect</button>
+      </div>
+    </form>
+  </dialog>
+
   <script>
-    const WS_URL = "ws://localhost:80/ws";
+    const DEFAULT_WS_URL = "ws://localhost:80/ws";
+    const STORE_KEY = "miniAgentConnection";
+
+    // The server requires an `init` handshake (auth token + LLM/search keys + model
+    // names + usecase) as the very first message. The browser collects these from the
+    // connection form. The browser is the trusted key holder — values may be remembered
+    // in this browser's localStorage. For shared/public deployments, use a backend that
+    // injects these server-side instead of exposing them in the page.
+    let wsUrl = DEFAULT_WS_URL;
+    let initPayload = null;
+
+    // ---- element handles ----------------------------------------------------
+
+    const connectDialog = document.getElementById("connectDialog");
+    const connectForm = document.getElementById("connectForm");
+    const connectError = document.getElementById("connectError");
+    const fUrl = document.getElementById("fUrl");
+    const fToken = document.getElementById("fToken");
+    const fUsecase = document.getElementById("fUsecase");
+    const fCollection = document.getElementById("fCollection");
+    const fOpenai = document.getElementById("fOpenai");
+    const fTavily = document.getElementById("fTavily");
+    const fModel = document.getElementById("fModel");
+    const fEmbed = document.getElementById("fEmbed");
+    const fRemember = document.getElementById("fRemember");
+    const settingsButton = document.getElementById("settingsButton");
 
     const chatLog = document.getElementById("chatLog");
-    const thinkingLog = document.getElementById("thinkingLog");
-    const thinkingStatus = document.getElementById("thinkingStatus");
     const connectionStatus = document.getElementById("connectionStatus");
     const statusDot = document.getElementById("statusDot");
     const reconnectButton = document.getElementById("reconnectButton");
@@ -351,21 +1002,346 @@
     const userInput = document.getElementById("userInput");
     const sendButton = document.getElementById("sendButton");
 
+    const flowTicker = document.getElementById("flowTicker");
+    const flowTickerText = document.getElementById("flowTickerText");
+
+    const planStatus = document.getElementById("planStatus");
+    const planEmpty = document.getElementById("planEmpty");
+    const planCard = document.getElementById("planCard");
+    const planVersion = document.getElementById("planVersion");
+    const planGoal = document.getElementById("planGoal");
+    const progressFill = document.getElementById("progressFill");
+    const progressLabel = document.getElementById("progressLabel");
+    const todoList = document.getElementById("todoList");
+    const brainRegion = document.getElementById("brainRegion");
+    const brainFeed = document.getElementById("brainFeed");
+    const brainScroll = document.getElementById("brainScroll");
+
     let socket = null;
     let inputAllowed = false;
     let sessionEnded = false;
 
+    // =========================================================================
+    //  FLOW PANEL — node highlighting with visible transitions
+    // =========================================================================
+
+    const FLOW_NODES = ["user", "planner", "brain", "rag", "web", "ask", "replan", "answer", "end"];
+
+    // server tool name -> flow node id
+    const TOOL_NODE = {
+      internet_search: "web",
+      RAG_search: "rag",
+      collect_human_input: "ask",
+      fallback_agent: "ask",
+      the_planner: "replan",
+      ready_for_answer: "answer",
+      response_generator: "answer",
+      end: "end",
+    };
+
+    // connector to animate for a given (from -> to) hop along the main pipeline
+    const CONNECTORS = {
+      "user>planner": "conn-user-planner",
+      "planner>brain": "conn-planner-brain",
+      "brain>rag": "conn-brain-tools",
+      "brain>web": "conn-brain-tools",
+      "brain>ask": "conn-brain-tools",
+      "brain>replan": "conn-brain-tools",
+      "brain>answer": "conn-tools-answer",
+      "answer>end": "conn-answer-end",
+      "brain>end": "conn-answer-end",
+    };
+
+    let activeNode = null;
+    const nodeCounts = Object.fromEntries(FLOW_NODES.map((n) => [n, 0]));
+
+    function nodeEl(name) {
+      return document.getElementById(`node-${name}`);
+    }
+
+    function bumpCount(name) {
+      nodeCounts[name] += 1;
+      const badge = nodeEl(name).querySelector(".node-count");
+      badge.textContent = nodeCounts[name];
+      badge.classList.add("visible");
+      badge.classList.remove("bump");
+      void badge.offsetWidth; // restart transition
+      badge.classList.add("bump");
+      setTimeout(() => badge.classList.remove("bump"), 250);
+    }
+
+    function animateConnector(from, to) {
+      const id = CONNECTORS[`${from}>${to}`];
+      if (!id) return;
+      const conn = document.getElementById(id);
+      conn.classList.remove("flowing");
+      void conn.offsetWidth; // restart the dot animation
+      conn.classList.add("flowing");
+      setTimeout(() => conn.classList.remove("flowing"), 1200);
+    }
+
+    function setActiveNode(name) {
+      if (!FLOW_NODES.includes(name)) return;
+      if (activeNode === name) {
+        bumpCount(name);
+        return;
+      }
+
+      if (activeNode) {
+        const prev = nodeEl(activeNode);
+        prev.classList.remove("active");
+        prev.classList.add("flash");
+        setTimeout(() => prev.classList.remove("flash"), 600);
+        animateConnector(activeNode, name);
+      }
+
+      FLOW_NODES.forEach((n) => nodeEl(n).classList.remove("next"));
+
+      const el = nodeEl(name);
+      el.classList.add("active");
+      bumpCount(name);
+      activeNode = name;
+    }
+
+    function setNextNode(name) {
+      if (!FLOW_NODES.includes(name) || name === activeNode) return;
+      FLOW_NODES.forEach((n) => nodeEl(n).classList.remove("next"));
+      nodeEl(name).classList.add("next");
+    }
+
+    function setTicker(text, live) {
+      flowTickerText.textContent = text;
+      flowTicker.classList.toggle("live", Boolean(live));
+    }
+
+    function resetFlow() {
+      FLOW_NODES.forEach((n) => {
+        const el = nodeEl(n);
+        el.classList.remove("active", "next", "flash", "dimmed");
+        nodeCounts[n] = 0;
+        const badge = el.querySelector(".node-count");
+        badge.textContent = "0";
+        badge.classList.remove("visible");
+      });
+      activeNode = null;
+      setTicker("Waiting for agent activity", false);
+    }
+
+    function endFlow() {
+      FLOW_NODES.forEach((n) => {
+        if (n !== "end") nodeEl(n).classList.add("dimmed");
+        nodeEl(n).classList.remove("next");
+      });
+    }
+
+    // =========================================================================
+    //  PLAN PANEL — interactive TODO checklist + brain feed
+    // =========================================================================
+
+    const TOOL_LABELS = {
+      internet_search: "web search",
+      RAG_search: "RAG search",
+      collect_human_input: "ask user",
+      ready_for_answer: "answer",
+      the_planner: "replan",
+      fallback_agent: "follow-up",
+      end: "end",
+    };
+
+    const STATUS_CLASS = {
+      "done": "status-done",
+      "in progress": "status-progress",
+      "not done": "",
+      "not relevant": "status-skipped",
+    };
+
+    const STATUS_GLYPH = {
+      "done": "✓",
+      "in progress": "◐",
+      "not done": "",
+      "not relevant": "⊘",
+    };
+
+    let planVersionCount = 0;
+    let todoItems = []; // [{key, title, status, el}]
+
+    function normalizeTitle(title) {
+      return String(title || "").trim().toLowerCase();
+    }
+
+    function renderPlan(message) {
+      planVersionCount += 1;
+      const revised = Boolean(message.replan) || planVersionCount > 1;
+
+      planEmpty.hidden = true;
+      planCard.hidden = false;
+      planVersion.textContent = revised ? `Plan v${planVersionCount} — revised` : "Plan v1";
+      planVersion.classList.toggle("revised", revised);
+      planGoal.textContent = message.goal || "";
+      planStatus.textContent = revised ? "Plan revised" : "Plan created";
+
+      todoList.innerHTML = "";
+      todoItems = [];
+
+      const tasks = Array.isArray(message.plan) ? message.plan : [];
+      tasks.forEach((task, index) => {
+        const item = buildTodoItem(task.title || `Task ${index + 1}`, task.description || "", task.tool || "");
+        item.el.style.animationDelay = `${index * 70}ms`;
+        todoList.appendChild(item.el);
+        todoItems.push(item);
+      });
+
+      updateProgress();
+    }
+
+    function buildTodoItem(title, description, tool) {
+      const li = document.createElement("li");
+      li.className = "todo-item";
+
+      const statusIcon = document.createElement("span");
+      statusIcon.className = "todo-status";
+
+      const body = document.createElement("div");
+      body.className = "todo-body";
+
+      const titleRow = document.createElement("div");
+      titleRow.className = "todo-title-row";
+
+      const titleNode = document.createElement("span");
+      titleNode.className = "todo-title";
+      titleNode.textContent = title;
+      titleRow.appendChild(titleNode);
+
+      if (tool) {
+        const chip = document.createElement("span");
+        chip.className = "todo-tool";
+        chip.textContent = TOOL_LABELS[tool] || tool;
+        titleRow.appendChild(chip);
+      }
+
+      body.appendChild(titleRow);
+
+      if (description) {
+        const desc = document.createElement("div");
+        desc.className = "todo-desc";
+        desc.textContent = description;
+        body.appendChild(desc);
+        li.addEventListener("click", () => li.classList.toggle("expanded"));
+      }
+
+      const note = document.createElement("div");
+      note.className = "todo-note";
+      note.hidden = true;
+      body.appendChild(note);
+
+      li.append(statusIcon, body);
+
+      return { key: normalizeTitle(title), title, status: "not done", el: li, statusIcon, note };
+    }
+
+    function applyTodoUpdates(updates) {
+      if (!Array.isArray(updates) || updates.length === 0) return;
+
+      updates.forEach((update) => {
+        const key = normalizeTitle(update.title);
+        let item = todoItems.find((t) => t.key === key);
+
+        if (!item) {
+          // brain may track a task the plan didn't list — append it
+          item = buildTodoItem(update.title || "Task", "", "");
+          todoList.appendChild(item.el);
+          todoItems.push(item);
+        }
+
+        const status = update.status || "not done";
+        if (item.status !== status) {
+          item.status = status;
+          item.el.classList.remove("status-done", "status-progress", "status-skipped");
+          const cls = STATUS_CLASS[status];
+          if (cls) item.el.classList.add(cls);
+          item.statusIcon.textContent = STATUS_GLYPH[status] || "";
+        }
+
+        if (update.description) {
+          item.note.textContent = update.description;
+          item.note.hidden = false;
+        }
+      });
+
+      updateProgress();
+    }
+
+    function updateProgress() {
+      const total = todoItems.length;
+      if (total === 0) {
+        progressFill.style.width = "0%";
+        progressLabel.textContent = "";
+        return;
+      }
+      const done = todoItems.filter((t) => t.status === "done").length;
+      const skipped = todoItems.filter((t) => t.status === "not relevant").length;
+      const resolved = done + skipped;
+      progressFill.style.width = `${Math.round((resolved / total) * 100)}%`;
+      progressLabel.textContent =
+        `${done}/${total} done` + (skipped ? ` · ${skipped} skipped` : "");
+      planStatus.textContent = resolved === total ? "Plan complete" : `${done}/${total} done`;
+    }
+
+    function appendBrainEntry(message) {
+      brainRegion.hidden = false;
+
+      brainFeed.querySelectorAll(".brain-entry.latest")
+        .forEach((el) => el.classList.remove("latest"));
+
+      const entry = document.createElement("article");
+      entry.className = "brain-entry latest";
+
+      const meta = document.createElement("div");
+      meta.className = "entry-meta";
+
+      if (message.step) {
+        const step = document.createElement("span");
+        step.className = "entry-step";
+        step.textContent = message.step;
+        meta.appendChild(step);
+      }
+
+      const decision = document.createElement("span");
+      decision.className = "entry-decision";
+      decision.textContent = message.tool
+        ? (TOOL_LABELS[message.tool] || message.tool)
+        : (message.decision || "");
+      meta.appendChild(decision);
+
+      const thought = document.createElement("p");
+      thought.className = "entry-thought";
+      thought.textContent = message.thought || "";
+
+      entry.append(meta, thought);
+      brainFeed.appendChild(entry);
+      brainScroll.scrollTop = brainScroll.scrollHeight;
+    }
+
+    function resetPlanPanel() {
+      planVersionCount = 0;
+      todoItems = [];
+      todoList.innerHTML = "";
+      brainFeed.innerHTML = "";
+      planCard.hidden = true;
+      brainRegion.hidden = true;
+      planEmpty.hidden = false;
+      planStatus.textContent = "No plan yet";
+    }
+
+    // =========================================================================
+    //  CHAT PANEL
+    // =========================================================================
+
     function setConnectionStatus(text, state) {
       connectionStatus.textContent = text;
       statusDot.className = "status-dot";
-
-      if (state === "connected") {
-        statusDot.classList.add("connected");
-      }
-
-      if (state === "error") {
-        statusDot.classList.add("error");
-      }
+      if (state === "connected") statusDot.classList.add("connected");
+      if (state === "error") statusDot.classList.add("error");
     }
 
     function setInputEnabled(enabled) {
@@ -373,18 +1349,11 @@
       userInput.disabled = !enabled;
       sendButton.disabled = !enabled;
       userInput.placeholder = enabled ? "Type your response..." : "Waiting for agent...";
-
-      if (enabled) {
-        userInput.focus();
-      }
+      if (enabled) userInput.focus();
     }
 
     function showReconnect(show) {
       reconnectButton.classList.toggle("visible", show);
-    }
-
-    function scrollToBottom(element) {
-      element.scrollTop = element.scrollHeight;
     }
 
     function appendChatMessage(kind, label, content, extraClass) {
@@ -401,137 +1370,83 @@
 
       message.append(labelNode, bubble);
       chatLog.appendChild(message);
-      scrollToBottom(chatLog);
+      chatLog.scrollTop = chatLog.scrollHeight;
     }
 
-    function appendThinking(title, contentNode) {
-      const item = document.createElement("article");
-      item.className = "thinking-item";
-
-      const titleNode = document.createElement("strong");
-      titleNode.textContent = title;
-      item.appendChild(titleNode);
-      item.appendChild(contentNode);
-
-      thinkingLog.appendChild(item);
-      thinkingStatus.textContent = "Receiving live updates";
-      scrollToBottom(thinkingLog);
-    }
-
-    function appendPlannerThinking(message) {
-      const wrapper = document.createElement("div");
-
-      const goal = document.createElement("p");
-      goal.textContent = message.goal || "";
-      wrapper.appendChild(goal);
-
-      const tasks = Array.isArray(message.plan) ? message.plan : [];
-      if (tasks.length > 0) {
-        const list = document.createElement("ol");
-        tasks.forEach((task) => {
-          const item = document.createElement("li");
-          const title = task && task.title ? task.title : "Task";
-          const description = task && task.description ? task.description : "";
-          item.textContent = description ? `${title}: ${description}` : title;
-          list.appendChild(item);
-        });
-        wrapper.appendChild(list);
-      }
-
-      appendThinking("Planner", wrapper);
-    }
-
-    function appendBrainThinking(message) {
-      const wrapper = document.createElement("div");
-
-      const thought = document.createElement("p");
-      thought.textContent = message.thought || "";
-      wrapper.appendChild(thought);
-
-      if (message.decision) {
-        const decision = document.createElement("span");
-        decision.className = "decision";
-        decision.textContent = message.decision;
-        wrapper.appendChild(decision);
-      }
-
-      appendThinking("Brain", wrapper);
-    }
-
-    function appendToolThinking(message) {
-      const text = document.createElement("p");
-      text.textContent = message.message || "";
-      appendThinking("Tool", text);
-    }
-
-    function appendSessionEndThinking(status) {
-      const text = document.createElement("p");
-      text.textContent = `I have answered the user's concerns and completed this session. Status: ${status}.`;
-
-      const item = document.createElement("article");
-      item.className = "thinking-item session-complete";
-
-      const titleNode = document.createElement("strong");
-      titleNode.textContent = "Session complete";
-      item.append(titleNode, text);
-
-      thinkingLog.appendChild(item);
-      thinkingStatus.textContent = "Session complete";
-      scrollToBottom(thinkingLog);
-    }
+    // =========================================================================
+    //  SERVER MESSAGE ROUTING
+    // =========================================================================
 
     function handleServerMessage(message) {
       const type = message.type;
 
       if (type === "acknowledgement") {
         const sessionId = message.session_id || "";
-        setConnectionStatus(sessionId ? `Connected: ${sessionId}` : "Connected", "connected");
+        setConnectionStatus(sessionId ? `Connected: ${sessionId.slice(0, 8)}…` : "Connected", "connected");
         appendChatMessage("agent", "Agent", message.content || "");
+        setActiveNode("user");
+        setTicker("Waiting for your message", true);
         setInputEnabled(true);
         return;
       }
 
       if (type === "agent_thinking") {
         setInputEnabled(false);
+
         if (message.source === "planner") {
-          appendPlannerThinking(message);
+          setActiveNode("planner");
+          setTicker(message.replan ? "Revising the plan..." : "Planning the approach...", true);
+          renderPlan(message);
         } else if (message.source === "brain") {
-          appendBrainThinking(message);
+          setActiveNode("brain");
+          setTicker("Brain deciding the next step...", true);
+          appendBrainEntry(message);
+          applyTodoUpdates(message.todo_updates);
+          if (message.tool && TOOL_NODE[message.tool]) {
+            setNextNode(TOOL_NODE[message.tool]);
+          }
         } else if (message.source === "tool") {
-          appendToolThinking(message);
+          const node = message.tool ? TOOL_NODE[message.tool] : null;
+          if (node) setActiveNode(node);
+          setTicker(message.message || "Running a tool...", true);
         }
         return;
       }
 
       if (type === "follow_up_question") {
         appendChatMessage("agent", "Agent", message.content || "");
+        setActiveNode("ask");
+        setTicker("Waiting for your answer", true);
         setInputEnabled(true);
         return;
       }
 
       if (type === "final_response") {
         appendChatMessage("agent", "Final response", message.content || "", "final");
+        setActiveNode("answer");
+        setTicker("Answer delivered", true);
         setInputEnabled(false);
         return;
       }
 
       if (type === "session_end") {
         const status = message.status || "unknown";
-        appendSessionEndThinking(status);
         appendChatMessage("system", "Session", `Session ended. Status: ${status}`);
+        setActiveNode("end");
+        endFlow();
+        setTicker(`Session complete — ${status}`, false);
         setConnectionStatus(`Session ended: ${status}`, "disconnected");
         setInputEnabled(false);
         showReconnect(true);
         sessionEnded = true;
-        if (socket) {
-          socket.close();
-        }
+        if (socket) socket.close();
         return;
       }
 
       if (type === "error") {
         appendChatMessage("error", "Error", message.content || "Unknown error");
         setConnectionStatus("Error", "error");
+        setTicker("Error", false);
         setInputEnabled(false);
         showReconnect(true);
         return;
@@ -540,7 +1455,16 @@
       appendChatMessage("system", "Unknown message", JSON.stringify(message, null, 2));
     }
 
+    // =========================================================================
+    //  CONNECTION
+    // =========================================================================
+
     function connect() {
+      if (!initPayload) {
+        openConnectDialog();
+        return;
+      }
+
       if (socket && socket.readyState === WebSocket.OPEN) {
         socket.close();
       }
@@ -548,13 +1472,16 @@
       sessionEnded = false;
       showReconnect(false);
       setInputEnabled(false);
+      resetFlow();
+      resetPlanPanel();
       setConnectionStatus("Connecting...", "disconnected");
-      appendChatMessage("system", "Connection", `Connecting to ${WS_URL}`);
+      appendChatMessage("system", "Connection", `Connecting to ${wsUrl} (usecase: ${initPayload.usecase})`);
 
-      socket = new WebSocket(WS_URL);
+      socket = new WebSocket(wsUrl);
 
       socket.addEventListener("open", () => {
-        setConnectionStatus("Connected", "connected");
+        setConnectionStatus("Authenticating...", "connected");
+        socket.send(JSON.stringify(initPayload));
       });
 
       socket.addEventListener("message", (event) => {
@@ -579,13 +1506,102 @@
         appendChatMessage(
           "error",
           "Error",
-          `Could not connect to ${WS_URL}. Make sure the server is running.`
+          `Could not connect to ${wsUrl}. Make sure the server is running.`
         );
         setConnectionStatus("Connection error", "error");
         setInputEnabled(false);
         showReconnect(true);
       });
     }
+
+    // ---- Connection form ----------------------------------------------------
+
+    function loadStoredConnection() {
+      try {
+        return JSON.parse(localStorage.getItem(STORE_KEY)) || {};
+      } catch (error) {
+        return {};
+      }
+    }
+
+    function prefillConnectForm() {
+      const saved = loadStoredConnection();
+      fUrl.value = saved.url || DEFAULT_WS_URL;
+      fToken.value = saved.token || "";
+      fUsecase.value = saved.usecase || "tour_agency";
+      fCollection.value = saved.collection_name || "";
+      fOpenai.value = saved.openai_api_key || "";
+      fTavily.value = saved.tavily_api_key || "";
+      fModel.value = saved.agent_model || "gpt-4.1-mini";
+      fEmbed.value = saved.embedding_model || "text-embedding-3-small";
+      fRemember.checked = saved.remember !== false;
+      syncCollectionPlaceholder();
+    }
+
+    function showConnectError(text) {
+      connectError.textContent = text;
+      connectError.classList.toggle("visible", Boolean(text));
+    }
+
+    // Keep the Collection placeholder in sync with the selected usecase so it is
+    // clear that leaving Collection blank uses the usecase name as the collection.
+    function syncCollectionPlaceholder() {
+      fCollection.placeholder = fUsecase.value;
+    }
+    fUsecase.addEventListener("change", syncCollectionPlaceholder);
+
+    function openConnectDialog() {
+      showConnectError("");
+      prefillConnectForm();
+      if (!connectDialog.open) {
+        connectDialog.showModal();
+      }
+    }
+
+    connectForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+
+      const url = fUrl.value.trim() || DEFAULT_WS_URL;
+      const token = fToken.value.trim();
+      const usecase = fUsecase.value.trim();
+      const collection = fCollection.value.trim() || usecase;
+      const openaiKey = fOpenai.value.trim();
+
+      if (!token) {
+        showConnectError("Access token is required.");
+        return;
+      }
+      if (!openaiKey) {
+        showConnectError("OpenAI API key is required.");
+        return;
+      }
+
+      wsUrl = url;
+      initPayload = {
+        type: "init",
+        token,
+        usecase,
+        collection_name: collection,
+        openai_api_key: openaiKey,
+        tavily_api_key: fTavily.value.trim(),
+        agent_model: fModel.value.trim() || "gpt-4.1-mini",
+        embedding_model: fEmbed.value.trim() || "text-embedding-3-small",
+      };
+
+      if (fRemember.checked) {
+        localStorage.setItem(STORE_KEY, JSON.stringify({
+          url, token, usecase, collection_name: collection,
+          openai_api_key: openaiKey, tavily_api_key: fTavily.value.trim(),
+          agent_model: initPayload.agent_model, embedding_model: initPayload.embedding_model,
+          remember: true,
+        }));
+      } else {
+        localStorage.removeItem(STORE_KEY);
+      }
+
+      connectDialog.close();
+      connect();
+    });
 
     composer.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -599,11 +1615,15 @@
       appendChatMessage("user", "You", content);
       userInput.value = "";
       setInputEnabled(false);
+      setActiveNode("user");
+      setTicker("Message sent — agent is thinking...", true);
     });
 
     reconnectButton.addEventListener("click", connect);
+    settingsButton.addEventListener("click", openConnectDialog);
 
-    connect();
+    // On load: ask for connection details instead of auto-connecting.
+    openConnectDialog();
   </script>
 </body>
 </html>

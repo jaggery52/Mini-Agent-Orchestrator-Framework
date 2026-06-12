@@ -8,7 +8,7 @@ Tool routing is intentionally **not** implemented via OpenAI's native tool-calli
 
 ## Design Philosophy
 
-The framework is built on one core idea: **the agent's behaviour is configuration, the engine is code.** The state machine engine (`engine/state_machine.py`) knows nothing about planning, searching, or answering — it only knows how to execute states and evaluate transitions. Everything that makes this particular agent a *orchestrator assistant* lives in a single JSON file: `src/mini_agent/configs/default/state_machine_config.json`.
+The framework is built on one core idea: **the agent's behaviour is configuration, the engine is code.** The state machine engine (`engine/state_machine.py`) knows nothing about planning, searching, or answering — it only knows how to execute states and evaluate transitions. Everything that makes a particular agent what it is lives in a per-usecase JSON file: `src/mini_agent/configs/<usecase>/state_machine_config.json` (e.g. `configs/tour_agency/`, `configs/document_helper/`). The usecase is selected per WebSocket connection (see [WebSocket Protocol](#websocket-protocol)).
 
 This separation was adopted deliberately, for three reasons:
 
@@ -16,12 +16,12 @@ This separation was adopted deliberately, for three reasons:
 
 Every state, transition, prompt, and tool description is declared in the JSON config. Want the agent to skip the planner for simple queries? Re-route `human_input → the brain` directly. Want a confirmation step before every web search? Insert a `collect_human_input` state in front of `Internet Search Handler`. Want a different personality or stricter guardrails? Edit `agent_setup_prompt` or `analyze_instructions_prompt` in the config. None of these changes require modifying Python code — the engine reads whatever graph you give it.
 
-In practice, changing the agent can be as simple as swapping files: the state-machine config and the indexed knowledge-base document. This repo includes example flows in `examples/`:
+In practice, adding an agent is as simple as adding two folders: a state-machine config and its knowledge-base documents. This repo ships two usecases out of the box:
 
-- `examples/configs/mini_agent.json` + `examples/corpora/mini-agent-doc.txt` — a general mini-agent/document-helper setup.
-- `examples/configs/tour_agent.json` + `examples/corpora/tour-packages.txt` — a travel-agent tour-planning setup.
+- `configs/tour_agency/` + `knowledge_base/tour_agency/` — a travel-agent tour-planning setup.
+- `configs/document_helper/` + `knowledge_base/document_helper/` — a general document-Q&A setup.
 
-To try one, copy the example config content into `src/mini_agent/configs/default/state_machine_config.json`, replace the document in `knowledge_base/` with the matching `.txt` file, then rebuild/restart Docker. The same Python engine will boot with the new prompts, routing, tools, and knowledge base.
+To add another usecase, create `src/mini_agent/configs/<usecase>/state_machine_config.json` and `knowledge_base/<usecase>/*.txt`, rebuild the image (which indexes the new collection — see [Knowledge Base](#knowledge-base--build-time-indexing)), and have the client select it in the `init` handshake. The same Python engine boots with the new prompts, routing, tools, and knowledge base — no code changes.
 
 ### 2. Adding a new tool takes three small steps
 
@@ -35,7 +35,7 @@ The brain automatically starts considering the new tool on its next decision —
 
 ### 3. The same engine serves entirely different use cases
 
-A new agent (document helper, ops bot, project planner, customer-support triage…) is a new folder under `src/mini_agent/configs/<usecase>/` with its own `state_machine_config.json` — different states, prompts, tools, and routing — passed to `StateMachine("<usecase>")`. The engine, memory model, session handling, and server are reused unchanged. Domain-specific behaviour never leaks into the core. Note: the config name is hardcoded in `server.py` for simplicity, but could easily be made dynamic.
+A new agent (document helper, ops bot, project planner, customer-support triage…) is a new folder under `src/mini_agent/configs/<usecase>/` with its own `state_machine_config.json` — different states, prompts, tools, and routing. The usecase is chosen per connection: the client names it in the `init` handshake, and the server constructs `StateMachine("<usecase>")` for that session. The engine, memory model, session handling, and server are reused unchanged. Domain-specific behaviour never leaks into the core.
 
 ### Why structured output instead of native tool calling
 
@@ -109,10 +109,10 @@ The brain's output is stored in **StateMemory**, the router branches to the righ
 | Tool | Trigger | Implementation |
 |------|---------|----------------|
 | `internet_search` | Questions needing current/live data | Tavily API → DuckDuckGo fallback |
-| `RAG_search` | Questions answerable from local documents | ChromaDB + OpenAI `text-embedding-3-small` |
+| `RAG_search` | Questions answerable from local documents | ChromaDB + the connection's `embedding_model` |
 | `collect_human_input` | Ambiguous requests, or asking for the next query after an answer | WebSocket `follow_up_question` event |
 | `the_planner` | Current plan is outdated or wrong | New planner call with `replan_instructions` |
-| `ready_for_answer` | Enough info gathered → generate response | OpenAI completion (`DEFAULT_MODEL`, default `gpt-4.1-mini`) |
+| `ready_for_answer` | Enough info gathered → generate response | OpenAI completion with the connection's `agent_model` |
 | `fallback_agent` | Internal guardrail when an answer was already delivered but the brain tries to answer again | Generates a contextual follow-up from the last answer, then routes to `collect_human_input` |
 | `end` | User asks to quit, or request is harmful/illegal/unethical | Sends `end_message` then `session_end` |
 
@@ -150,23 +150,52 @@ OpenAI's **automatic prefix caching** is exploited with zero extra code:
 
 ---
 
+## Secrets — create these before deploying
+
+Two secret files must exist at the **repo root** before you build/run. Both are
+gitignored and never committed; in the GitHub Actions CI/CD they become repository
+secrets instead (see below).
+
+| File (repo root) | Scope | Holds | Create it with |
+|------------------|-------|-------|----------------|
+| `openai_key.txt` | **Build-time only** | The raw OpenAI key on a single line | `echo -n "$OPENAI_API_KEY" > openai_key.txt` |
+| `.env` | **Runtime** | `SERVER_ACCESS_TOKEN` (WebSocket auth gate) | `cp .env.example .env` then set the token |
+
+- `openai_key.txt` is read by `docker compose build` as the `openai_key` BuildKit secret to
+  index the knowledge base into the image (`deploy/Dockerfile`). It is **never** copied into
+  the runtime image — the running containers hold no LLM/search keys.
+- `.env` is auto-loaded by `docker compose` to inject `SERVER_ACCESS_TOKEN`; with an empty
+  token the server rejects every connection.
+- **CI/CD:** instead of these files, pass the build key with
+  `docker build --secret id=openai_key,env=OPENAI_API_KEY …` and set `SERVER_ACCESS_TOKEN`
+  as a runtime env — both sourced from GitHub Actions / Azure secrets.
+
 ## Quick Start — Docker + Browser UI
 
 ```bash
-# Create the env file first, then fill in OPENAI_API_KEY.
-# TAVILY_API_KEY is optional; DuckDuckGo is used as a fallback if omitted.
-cp .env.example .env
+# 1. Create the two secret files above (run from the repo root):
+cp .env.example .env                          # then set SERVER_ACCESS_TOKEN
+echo -n "$OPENAI_API_KEY" > openai_key.txt    # build-time embedding key
 
-# Build and start two service instances + nginx load balancer.
-docker compose up --build
-
-# Or run detached.
-docker compose up --build -d
+# 2. Build (BuildKit required for the secret) and start two instances + nginx.
+DOCKER_BUILDKIT=1 docker compose build
+docker compose up -d
 ```
 
-Open `clients/web/index.html` directly in a browser (**no build step**).
+During the build, each usecase's documents under `knowledge_base/<usecase>/` are
+indexed into its own Chroma collection and baked into the image. The running
+containers hold **no** LLM/search keys — clients supply those per connection.
 
-The browser UI shows planner steps, brain reasoning, tool activity, follow-up questions, and final answers in a chat-style layout.
+Open `clients/web/index.html` in a browser (**no build step**). A connection dialog
+prompts for your access token (= `SERVER_ACCESS_TOKEN`), OpenAI key, usecase, and model
+names; fill them in and click **Connect** (values can be remembered in the browser).
+
+The browser UI is a three-panel live view of the agent: an **Agent Flow** pipeline on the
+left that highlights the active agent/tool node (User → Planner → Brain → tool → Answer →
+End) with animated hand-offs; a **Plan & Reasoning** panel in the middle showing the
+planner's structured plan as an interactive TODO checklist (statuses flip live from the
+brain's `todo_updates`, with a progress bar and revision badges on replans) plus a brain
+reasoning timeline; and the **chat** on the right.
 
 Per-instance log files are written to `./logs/` on the host:
 ```
@@ -181,18 +210,26 @@ The project is a standard `src/`-layout Python package. Install it (and dev tool
 in editable mode, then run the server directly:
 
 ```bash
-# Python 3.11+. Create the env file and fill in OPENAI_API_KEY first.
+# Python 3.11+. Set SERVER_ACCESS_TOKEN in .env first.
 cp .env.example .env
 
 pip install -e ".[dev]"
 
+# Build the per-usecase Chroma collections once (uses OPENAI_API_KEY from your
+# shell only for this build step — the server itself never reads it):
+OPENAI_API_KEY=sk-... python -m mini_agent.build_kb
+
 # Start the WebSocket server (either form works):
-python -m mini_agent
-# or:  uvicorn mini_agent.server:app --port 8000
+SERVER_ACCESS_TOKEN=dev-token python -m mini_agent
+# or:  SERVER_ACCESS_TOKEN=dev-token uvicorn mini_agent.server:app --port 8000
 
 # Lint and test:
 ruff check src tests
 pytest
+
+# Run the CLI client (reads keys/token from its own environment):
+SERVER_ACCESS_TOKEN=dev-token OPENAI_API_KEY=sk-... \
+  python clients/cli_client.py --url ws://localhost:8000/ws --usecase tour_agency
 ```
 
 The browser UI (`clients/web/index.html`) and CLI client (`clients/cli_client.py`)
@@ -203,27 +240,35 @@ when running a single local server.
 
 ## Environment Variables
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `OPENAI_API_KEY` | **Yes** | — | OpenAI API key |
-| `TAVILY_API_KEY` | No | — | Tavily web search key; DuckDuckGo is used as a fallback if omitted |
-| `DEFAULT_MODEL` | No | `gpt-4.1-mini` | Model used by planner, brain, and response generator |
-| `EMBEDDING_MODEL` | No | `text-embedding-3-small` | OpenAI embedding model used by RAG search |
-| `FORCE_REINDEX` | No | `false` | Set `true` to force the RAG index to rebuild on every startup |
-| `LOG_LEVEL` | No | `INFO` | Python log level (`DEBUG`, `INFO`, `WARNING`) |
-| `LOG_FILE` | No | `logs/agent.log` | Log file path (overridden per-instance in Docker) |
+The running **server** reads only the auth/operational vars below. LLM and web-search
+keys plus model names are **not** read from the environment — each client supplies them
+in the `init` handshake (see [WebSocket Protocol](#websocket-protocol)).
+
+| Variable | Scope | Required | Default | Description |
+|----------|-------|----------|---------|-------------|
+| `SERVER_ACCESS_TOKEN` | Server (runtime) | **Yes** | — | WebSocket auth gate — clients must present this in the `init` handshake |
+| `FORCE_REINDEX` | Build / runtime | No | `false` | Set `true` to force the RAG index to rebuild |
+| `LOG_LEVEL` | Server (runtime) | No | `INFO` | Python log level (`DEBUG`, `INFO`, `WARNING`) |
+| `LOG_FILE` | Server (runtime) | No | `logs/agent.log` | Log file path (overridden per-instance in Docker) |
+| `OPENAI_API_KEY` | **Build-time only** | Build | — | Embedding key for `build_kb`; passed as a Docker build secret, never in the runtime image |
+| `EMBEDDING_MODEL` | **Build-time only** | No | `text-embedding-3-small` | Embedding model used to index the KB at build time |
+
+The client supplies these per connection (see `clients/cli_client.py` flags / env):
+`SERVER_ACCESS_TOKEN`, `OPENAI_API_KEY` (LLM + query embeddings), optional `TAVILY_API_KEY`,
+`DEFAULT_MODEL`, `EMBEDDING_MODEL`, `USECASE`, `COLLECTION_NAME`.
 
 ---
 
-The RAG knowledge base is indexed from `knowledge_base/` on first startup. Later starts reuse `chroma_db/` unless `knowledge_base/` changes or `FORCE_REINDEX=true`.
+## Knowledge Base — build-time indexing
 
-Run the CLI client script:
+Each usecase has its own document folder, `knowledge_base/<usecase>/`, indexed into its
+own Chroma collection (collection name == usecase slug). `python -m mini_agent.build_kb`
+indexes **all** usecases; the Dockerfile runs it at build time with the embedding key
+supplied as a BuildKit secret, baking the `chroma_db/` collections into the image. At
+runtime, the client-supplied key only embeds **queries** — the server never re-indexes
+or holds an embedding key. A per-collection fingerprint (`.docs_fingerprint_<collection>`)
+skips re-indexing when the documents are unchanged.
 
-```bash
-# Deploy docker and run the script
-# Connect via the Docker load balancer on port 80.
-python clients/cli_client.py
-```
 ---
 
 ## Logging
@@ -234,12 +279,31 @@ Logs are written to `logs/`
 
 ## WebSocket Protocol
 
+The connection is gated by an `init` handshake. Immediately after connecting, the client
+must send an `init` message carrying the auth token, the LLM/search keys, the model names,
+and the usecase/collection to run. The server validates the token and usecase before doing
+anything else; on failure it sends an `error` and closes with code **4001**. The server
+holds no LLM/search keys of its own — these drive every state for the session.
+
 ```
+Client → Server (FIRST message, required)
+  {"type": "init",
+   "token": "<SERVER_ACCESS_TOKEN>",
+   "usecase": "tour_agency",
+   "collection_name": "tour_agency",
+   "openai_api_key": "sk-...",
+   "tavily_api_key": "tvly-...",          // optional; DuckDuckGo fallback if empty
+   "agent_model": "gpt-4.1-mini",
+   "embedding_model": "text-embedding-3-small"}
+
 Server → Client
   {"type": "acknowledgement",    "session_id": "...", "content": "What would you like to do?"}
-  {"type": "agent_thinking",     "source": "planner", "goal": "...", "plan": [...]}
-  {"type": "agent_thinking",     "source": "brain",   "thought": "...", "decision": "..."}
-  {"type": "agent_thinking",     "source": "tool",    "message": "..."}
+  {"type": "agent_thinking",     "source": "planner", "goal": "...", "replan": false,
+                                 "plan": [{"title": "...", "description": "...", "tool": "RAG_search"}, ...]}
+  {"type": "agent_thinking",     "source": "brain",   "step": "step 2", "thought": "...",
+                                 "decision": "...", "tool": "internet_search",
+                                 "todo_updates": [{"title": "...", "description": "...", "status": "in progress"}, ...]}
+  {"type": "agent_thinking",     "source": "tool",    "tool": "RAG_search", "message": "..."}
   {"type": "follow_up_question", "content": "..."}
   {"type": "final_response",     "content": "..."}
   {"type": "session_end",        "status": "successful"}
@@ -264,7 +328,7 @@ Client → Server
 |-------|---------------------|
 | "What is the capital of France?" | Plans, then answers directly in a single brain call — no tools needed. |
 | "What happened in AI this week?" | Routes to `internet_search` (Tavily, with sources), then answers. |
-| "How does the state memory work?" | Routes to `RAG_search` against the indexed `knowledge_base/`, then answers. |
+| "How does the state memory work?" | Routes to `RAG_search` against the connection's usecase collection, then answers. |
 | "Help me with my project." | Detects ambiguity and asks a focused follow-up via `collect_human_input`. |
 | "Compare quantum and classical computing advances" | Runs several `internet_search` calls across multiple brain steps before answering. |
 | (after an answer) a new question | Continues the same session — simple queries answer directly, complex ones replan. |
@@ -277,12 +341,12 @@ A full example session — goal → plan → web search → answer → multi-tur
 
 ## Current Limitations
 
-- **Single bundled document** — `knowledge_base/sample_doc.txt` is the only indexed corpus. RAG is fully functional (ChromaDB + OpenAI embeddings); a production deployment would load a larger document set.
-- **One model for all roles** — `gpt-4.1-mini` (set via `DEFAULT_MODEL`) drives the planner, brain, and response generator. A larger model can be swapped in with no code change.
+- **Small bundled corpora** — each usecase ships one sample document under `knowledge_base/<usecase>/`. RAG is fully functional (ChromaDB + OpenAI embeddings); a production deployment would load a larger document set.
+- **One model for all roles** — the client-supplied `agent_model` drives the planner, brain, and response generator. A larger model can be selected per connection with no code change.
 - **Unbounded stored history** — `getBrainContext()` windows the brain prompt, but the full per-session history grows in memory until the session ends.
 - **In-memory sessions** — a restart clears all active sessions; there is no persistence layer.
-- **No auth or rate-limiting** on the WebSocket endpoint.
-- **Config name is hardcoded** in `server.py` (`StateMachine("default")`).
+- **Shared-secret auth** — the WebSocket is gated by a single `SERVER_ACCESS_TOKEN`; there is no per-user identity, rate-limiting, or JWT/expiry yet.
+- **Client holds the keys** — LLM/search keys travel in the `init` message, so clients are trusted. Use TLS (`wss://`) in production and treat the browser UI's inline keys accordingly.
 
 ---
 
@@ -300,7 +364,7 @@ A full example session — goal → plan → web search → answer → multi-tur
 **Configuration & multi-agent**
 - Load the state-machine config from a database or API so flows can change without a restart.
 - JSON-Schema validation of configs, and a visual graph viewer/editor for the state machine.
-- Serve multiple agent use-cases from one deployment by selecting the config per connection.
+- ✅ Serving multiple usecases from one deployment by selecting the config per connection (done — `tour_agency`, `document_helper`).
 
 **Models & providers**
 - A provider abstraction so the brain/planner can target different LLM vendors.
@@ -308,7 +372,7 @@ A full example session — goal → plan → web search → answer → multi-tur
 
 **Operations & quality**
 - Structured tracing (OpenTelemetry spans) for every brain call, tool invocation, and token cost.
-- Authentication, rate-limiting, and per-session quotas on the WebSocket endpoint.
+- Token auth on the WebSocket is in place (`SERVER_ACCESS_TOKEN` in the `init` handshake); still to add: per-user identity (JWT/expiry), rate-limiting, and per-session quotas.
 - A CI/CD pipeline (lint → test → build → publish image) wired to the existing `ruff` / `pytest` / Docker targets.
 - Expanded automated test coverage: tool handlers, memory windowing, and an end-to-end session simulation against a mocked LLM.
 
@@ -324,10 +388,11 @@ mini-agent-framework/
 ├── .env.example                            # Environment variable template
 │
 ├── src/mini_agent/                         # The installable package
-│   ├── server.py                           # WebSocket server (FastAPI) + main() entry point
+│   ├── server.py                           # WebSocket server (FastAPI) — init handshake/auth + main()
 │   ├── __main__.py                         # `python -m mini_agent`
-│   ├── session.py                          # SessionContext + ContextVar isolation
-│   ├── settings.py                         # Config, logging, project-root path anchors
+│   ├── build_kb.py                         # Build-time KB indexer (`python -m mini_agent.build_kb`)
+│   ├── session.py                          # SessionContext (per-connection keys/usecase) + ContextVar isolation
+│   ├── settings.py                         # SERVER_ACCESS_TOKEN, logging, project-root path anchors
 │   ├── engine/
 │   │   ├── state_machine.py                # Core execution engine
 │   │   └── state_memory.py                 # Session state store (ContextVar-isolated)
@@ -351,13 +416,15 @@ mini-agent-framework/
 │   │       └── search/
 │   │           ├── internet_search.py      # Tavily + DuckDuckGo fallback
 │   │           └── rag_search.py           # ChromaDB RAG (500-word chunks, 150-word overlap)
-│   └── configs/default/
-│       └── state_machine_config.json       # Full state graph (states, args, transitions)
+│   └── configs/                            # One folder per usecase (selected per connection)
+│       ├── tour_agency/state_machine_config.json
+│       └── document_helper/state_machine_config.json
 │
-├── knowledge_base/
-│   └── sample_doc.txt                      # RAG corpus indexed on startup
+├── knowledge_base/                         # One folder per usecase → one Chroma collection
+│   ├── tour_agency/tour-packages.txt
+│   └── document_helper/framework-guide.txt
 ├── deploy/
-│   ├── Dockerfile                          # Container image (Python 3.11-slim)
+│   ├── Dockerfile                          # Container image; indexes the KB at build time (build secret)
 │   └── nginx.conf                          # nginx WebSocket proxy + upstream config
 ├── clients/
 │   ├── cli_client.py                       # CLI WebSocket test client

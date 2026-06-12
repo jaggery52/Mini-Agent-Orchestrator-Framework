@@ -11,10 +11,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CHROMA_DIR = PROJECT_ROOT / "chroma_db"
 KNOWLEDGE_BASE_DIR = PROJECT_ROOT / "knowledge_base"
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
-DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "gpt-4.1-mini")
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+# Auth gate for the WebSocket — the ONLY secret the running server reads from env.
+# LLM / search API keys and model names are NOT read here; they are supplied by the
+# client per connection in the `init` handshake (see server.py / session.py).
+SERVER_ACCESS_TOKEN = os.getenv("SERVER_ACCESS_TOKEN", "")
 FORCE_REINDEX = os.getenv("FORCE_REINDEX", "false").lower() == "true"
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 LOG_FILE = os.getenv("LOG_FILE", "logs/agent.log")

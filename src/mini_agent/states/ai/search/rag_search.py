@@ -8,7 +8,6 @@ from mini_agent.settings import CHROMA_DIR, FORCE_REINDEX, KNOWLEDGE_BASE_DIR
 CHUNK_SIZE = 500
 CHUNK_OVERLAP = 150
 CHROMA_PERSIST_DIR = str(CHROMA_DIR)
-FINGERPRINT_FILE = pathlib.Path(CHROMA_PERSIST_DIR) / ".docs_fingerprint"
 
 
 class RagSearch:
@@ -25,6 +24,8 @@ class RagSearch:
         self.embedding_model = embedding_model
         self._collection = None
         self._openai_client = None
+        # Per-collection fingerprint so each usecase's KB is tracked independently.
+        self._fingerprint_file = pathlib.Path(CHROMA_PERSIST_DIR) / f".docs_fingerprint_{collection_name}"
 
 
     def initialise(self) -> None:
@@ -45,8 +46,8 @@ class RagSearch:
 
         current_fingerprint = self._docs_fingerprint()
         stored_fingerprint = (
-            FINGERPRINT_FILE.read_text(encoding="utf-8").strip()
-            if FINGERPRINT_FILE.exists()
+            self._fingerprint_file.read_text(encoding="utf-8").strip()
+            if self._fingerprint_file.exists()
             else None
         )
 
@@ -59,8 +60,8 @@ class RagSearch:
             logging.info(f"[RAG] Reindexing ({reason}) — loading documents from '{self.docs_folder}'")
             self._clear_collection()
             self._load_documents()
-            FINGERPRINT_FILE.parent.mkdir(parents=True, exist_ok=True)
-            FINGERPRINT_FILE.write_text(current_fingerprint, encoding="utf-8")
+            self._fingerprint_file.parent.mkdir(parents=True, exist_ok=True)
+            self._fingerprint_file.write_text(current_fingerprint, encoding="utf-8")
         else:
             logging.info(
                 f"[RAG] docs unchanged — skipping reload "
