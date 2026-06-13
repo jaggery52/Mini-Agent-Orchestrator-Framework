@@ -972,7 +972,12 @@
   </dialog>
 
   <script>
-    const DEFAULT_WS_URL = "ws://localhost:80/ws";
+    // When the page is served over HTTP(S), default the form to a same-origin WebSocket
+    // (e.g. wss://<host>/ws on Azure). Opened from disk (file://) it falls back to localhost.
+    const DEFAULT_WS_URL =
+      location.protocol === "https:" ? `wss://${location.host}/ws`
+      : location.protocol === "http:" ? `ws://${location.host}/ws`
+      : "ws://localhost:80/ws";
     const STORE_KEY = "miniAgentConnection";
 
     // The server requires an `init` handshake (auth token + LLM/search keys + model

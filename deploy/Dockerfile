@@ -15,6 +15,10 @@ COPY pyproject.toml README.md ./
 COPY src ./src
 RUN pip install --no-cache-dir -e .
 
+# Self-contained browser UI, served by the app at /mini-agent-ui (see server.py).
+# Only clients/web is needed; the CLI client under clients/ is not.
+COPY clients/web ./clients/web
+
 EXPOSE 8000
 
 CMD ["uvicorn", "mini_agent.server:app", "--host", "0.0.0.0", "--port", "8000"]
