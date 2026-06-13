@@ -65,7 +65,15 @@ jobs:
         with:
           inlineScript: |
             az extension add --name containerapp --upgrade --only-show-errors
+            # Ensure the app has Docker Hub pull credentials for the docker.io host
+            # (matches the image reference below, so the private-repo pull authenticates).
+            az containerapp registry set \
+              --name "$AZURE_CONTAINERAPP_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --server docker.io \
+              --username "${{ secrets.DOCKERHUB_USERNAME }}" \
+              --password "${{ secrets.DOCKERHUB_TOKEN }}"
             az containerapp update \
               --name "$AZURE_CONTAINERAPP_NAME" \
               --resource-group "$AZURE_RESOURCE_GROUP" \
-              --image docker.io/${{ secrets.DOCKERHUB_USERNAME }}/mini-agent-framework:latest
+              --image "docker.io/${{ secrets.DOCKERHUB_USERNAME }}/mini-agent-framework:latest"
