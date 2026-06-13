@@ -13,6 +13,9 @@ on:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    env:
+      AZURE_RESOURCE_GROUP: Mini-Agent-Orchestrator-Framework
+      AZURE_CONTAINERAPP_NAME: mini-agent
     steps:
       - name: Check out the code
         uses: actions/checkout@v4
@@ -46,3 +49,23 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # --- Auto-deploy the freshly pushed image to Azure Container Apps ---
+      # Only on main (not version tags). Rolls the running app to a new revision
+      # that re-pulls :latest from Docker Hub.
+      - name: Log in to Azure
+        if: github.ref == 'refs/heads/main'
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Roll the Container App to the new image
+        if: github.ref == 'refs/heads/main'
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            az extension add --name containerapp --upgrade --only-show-errors
+            az containerapp update \
+              --name "$AZURE_CONTAINERAPP_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --image docker.io/${{ secrets.DOCKERHUB_USERNAME }}/mini-agent-framework:latest
