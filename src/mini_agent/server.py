@@ -1,0 +1,236 @@
+import asyncio
+import logging
+import pathlib
+import shutil
+import tempfile
+
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+
+from mini_agent.engine.state_machine import StateMachine
+from mini_agent.engine.state_memory import StateMemory
+from mini_agent.session import SessionContext, set_session
+from mini_agent.settings import CHROMA_DIR, SERVER_ACCESS_TOKEN
+from mini_agent.states.ai.search.rag_search import RagSearch
+
+# Usecases are the sub-directories under configs/ (each holds a state_machine_config.json).
+CONFIGS_DIR = pathlib.Path(__file__).resolve().parent / "configs"
+
+# Upper bound on the combined size of a session's uploaded KB docs. Keeps per-session
+# indexing predictable on a low-tier container (see the deployment roadmap in CLAUDE.md).
+MAX_DOCS_BYTES = 2 * 1024 * 1024
+
+# Fields the client must supply (non-empty) in the `init` handshake.
+REQUIRED_INIT_FIELDS = (
+    "usecase",
+    "collection_name",
+    "openai_api_key",
+    "agent_model",
+    "embedding_model",
+)
+
+
+def _known_usecases() -> set:
+    if not CONFIGS_DIR.exists():
+        return set()
+    return {
+        path.name
+        for path in CONFIGS_DIR.iterdir()
+        if path.is_dir() and (path / "state_machine_config.json").exists()
+    }
+
+
+app = FastAPI(title="mini-agent WebSocket Server")
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+async def _authenticate(websocket: WebSocket, session: SessionContext) -> bool:
+    """Read and validate the first `init` message. Returns True if the session is
+    authorised and configured; otherwise sends an error, closes the socket, and
+    returns False."""
+    try:
+        message = await websocket.receive_json()
+    except Exception:
+        await websocket.close(code=4001, reason="Expected init handshake")
+        return False
+
+    if message.get("type") != "init":
+        await websocket.send_json({"type": "error", "content": "First message must be type 'init'."})
+        await websocket.close(code=4001, reason="Missing init handshake")
+        return False
+
+    if not SERVER_ACCESS_TOKEN or message.get("token") != SERVER_ACCESS_TOKEN:
+        logging.warning(f"[SERVER] Rejected connection — invalid token (session {session.session_id})")
+        await websocket.send_json({"type": "error", "content": "Authentication failed."})
+        await websocket.close(code=4001, reason="Invalid token")
+        return False
+
+    missing = [field for field in REQUIRED_INIT_FIELDS if not str(message.get(field, "")).strip()]
+    if missing:
+        await websocket.send_json({"type": "error", "content": f"Missing required init fields: {', '.join(missing)}"})
+        await websocket.close(code=4001, reason="Incomplete init payload")
+        return False
+
+    usecase = message["usecase"]
+    if usecase not in _known_usecases():
+        await websocket.send_json({"type": "error", "content": f"Unknown usecase '{usecase}'."})
+        await websocket.close(code=4001, reason="Unknown usecase")
+        return False
+
+    session.usecase = usecase
+    session.collection_name = message["collection_name"]
+    session.openai_api_key = message["openai_api_key"]
+    session.tavily_api_key = message.get("tavily_api_key", "")
+    session.agent_model = message["agent_model"]
+    session.embedding_model = message["embedding_model"]
+    return True
+
+
+async def _receive_documents(websocket: WebSocket, session: SessionContext) -> bool:
+    """Read the required `documents` message, persist the uploaded .txt files to a
+    per-session temp folder, and build this session's KB collection with the client's
+    own key. Returns True on success; otherwise sends an error, closes, returns False."""
+    try:
+        message = await websocket.receive_json()
+    except Exception:
+        await websocket.close(code=4001, reason="Expected documents handshake")
+        return False
+
+    if message.get("type") != "documents":
+        await websocket.send_json({"type": "error", "content": "Second message must be type 'documents'."})
+        await websocket.close(code=4001, reason="Missing documents handshake")
+        return False
+
+    files = message.get("files") or []
+    if not isinstance(files, list) or not files:
+        await websocket.send_json({"type": "error", "content": "'documents' must include a non-empty 'files' list."})
+        await websocket.close(code=4001, reason="No documents supplied")
+        return False
+
+    total_bytes = sum(len(str(file.get("content", "")).encode("utf-8")) for file in files)
+    if total_bytes > MAX_DOCS_BYTES:
+        await websocket.send_json({
+            "type": "error",
+            "content": f"Uploaded documents exceed the {MAX_DOCS_BYTES // (1024 * 1024)} MB limit.",
+        })
+        await websocket.close(code=4001, reason="Documents too large")
+        return False
+
+    # Per-session temp folder + collection so each connection has an isolated KB that is
+    # torn down at session end. The collection name is the session id (overrides init).
+    temp_dir = tempfile.mkdtemp(prefix="mini_agent_kb_")
+    for index, file in enumerate(files):
+        name = str(file.get("name") or f"doc_{index}.txt")
+        # Flatten to a basename and force .txt/.md so RagSearch picks it up.
+        safe_name = pathlib.Path(name).name or f"doc_{index}.txt"
+        if pathlib.Path(safe_name).suffix.lower() not in (".txt", ".md"):
+            safe_name = f"{safe_name}.txt"
+        (pathlib.Path(temp_dir) / safe_name).write_text(str(file.get("content", "")), encoding="utf-8")
+
+    session.docs_folder = temp_dir
+    session.collection_name = session.session_id
+
+    try:
+        rag = RagSearch(
+            openai_api_key=session.openai_api_key,
+            collection_name=session.collection_name,
+            docs_folder=session.docs_folder,
+            embedding_model=session.embedding_model,
+        )
+        rag.initialise()
+        chunk_count = rag._collection.count()
+        session.rag_search = rag  # reused by every RAG_search query this session
+    except Exception as error:
+        logging.error(f"[SERVER] KB build failed — session {session.session_id}: {error}", exc_info=True)
+        await websocket.send_json({"type": "error", "content": f"Failed to build knowledge base: {error}"})
+        await websocket.close(code=4001, reason="KB build failed")
+        _cleanup_session_kb(session)
+        return False
+
+    await websocket.send_json({"type": "kb_ready", "chunks": chunk_count})
+    logging.info(f"[SERVER] KB built — session {session.session_id}: {chunk_count} chunks from {len(files)} file(s)")
+    return True
+
+
+def _cleanup_session_kb(session: SessionContext) -> None:
+    """Drop the session's Chroma collection and temp docs folder."""
+    session.rag_search = None
+    if session.collection_name == session.session_id:
+        try:
+            import chromadb
+
+            chromadb.PersistentClient(path=str(CHROMA_DIR)).delete_collection(session.collection_name)
+        except Exception as error:
+            logging.debug(f"[SERVER] delete_collection skipped — session {session.session_id}: {error}")
+    if session.docs_folder:
+        shutil.rmtree(session.docs_folder, ignore_errors=True)
+        session.docs_folder = ""
+
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+
+    loop = asyncio.get_event_loop()
+    session = SessionContext(websocket=websocket, loop=loop)
+    set_session(session)
+
+    if not await _authenticate(websocket, session):
+        return
+
+    logging.info(
+        f"[SERVER] Client authenticated. Session: {session.session_id} | usecase: {session.usecase}"
+    )
+
+    if not await _receive_documents(websocket, session):
+        return
+
+    await websocket.send_json({
+        "type": "acknowledgement",
+        "session_id": session.session_id,
+        "content": "What would you like to do?",
+    })
+
+    async def run_machine():
+        try:
+            await asyncio.to_thread(_run_state_machine, session)
+        except Exception as error:
+            logging.error(f"[SERVER] State machine error — session {session.session_id}: {error}", exc_info=True)
+            session.send_sync({"type": "error", "content": str(error)})
+
+    machine_task = asyncio.create_task(run_machine())
+
+    try:
+        async for message in websocket.iter_json():
+            if message.get("type") == "human_input":
+                user_content = message.get("content", "")
+                logging.info(f"[SERVER] human_input received — session {session.session_id}: {user_content[:80]}")
+                session.input_queue.put(user_content)
+    except WebSocketDisconnect:
+        logging.info(f"[SERVER] Client disconnected — session {session.session_id}")
+        session.should_stop = True
+
+    await machine_task
+    _cleanup_session_kb(session)
+    logging.info(f"[SERVER] Session complete: {session.session_id}")
+
+
+def _run_state_machine(session: SessionContext) -> None:
+    set_session(session)
+    StateMemory.reset()
+    machine = StateMachine(session.usecase)
+    machine.run()
+
+
+def main() -> None:
+    """Console-script / `python -m mini_agent` entry point."""
+    import uvicorn
+
+    uvicorn.run("mini_agent.server:app", host="0.0.0.0", port=8000)
+
+
+if __name__ == "__main__":
+    main()

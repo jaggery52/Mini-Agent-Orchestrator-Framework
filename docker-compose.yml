@@ -1,0 +1,58 @@
+# There is no baked KB and no build secret — each session builds its own KB from the
+# client's uploaded docs at connect time. The running containers hold no LLM/search keys;
+# clients supply those in the WebSocket `init` handshake. The only server secret is
+# SERVER_ACCESS_TOKEN (auth gate).
+#
+# Build and run (with SERVER_ACCESS_TOKEN set in .env or the shell):
+#   docker compose build
+#   docker compose up -d
+
+services:
+  mini-agent-1:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    container_name: mini-agent-1
+    environment:
+      - SERVER_ACCESS_TOKEN=${SERVER_ACCESS_TOKEN}
+      - LOG_FILE=logs/mini-agent-1.log
+      - TZ=Europe/Berlin
+    volumes:
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+  mini-agent-2:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    container_name: mini-agent-2
+    environment:
+      - SERVER_ACCESS_TOKEN=${SERVER_ACCESS_TOKEN}
+      - LOG_FILE=logs/mini-agent-2.log
+      - TZ=Europe/Berlin
+    volumes:
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - mini-agent-1
+      - mini-agent-2
+    restart: unless-stopped

@@ -216,3 +216,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Vector database
+chroma_db/
+
+# Misc
+misc/
+# Legacy build secret — no longer used by the build, but keep ignored so a stray
+# local copy is never committed. Safe to delete the file.
+openai_key.txt
+
+CLAUDE.md
