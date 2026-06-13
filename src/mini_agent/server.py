@@ -5,6 +5,7 @@ import shutil
 import tempfile
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
 
 from mini_agent.engine.state_machine import StateMachine
 from mini_agent.engine.state_memory import StateMemory
@@ -14,6 +15,10 @@ from mini_agent.states.ai.search.rag_search import RagSearch
 
 # Usecases are the sub-directories under configs/ (each holds a state_machine_config.json).
 CONFIGS_DIR = pathlib.Path(__file__).resolve().parent / "configs"
+
+# Self-contained browser UI, served at /mini-agent-ui. parents[2] is the repo root (/app
+# in the image), matching PROJECT_ROOT in settings.py.
+WEB_CLIENT_HTML = pathlib.Path(__file__).resolve().parents[2] / "clients" / "web" / "index.html"
 
 # Upper bound on the combined size of a session's uploaded KB docs. Keeps per-session
 # indexing predictable on a low-tier container (see the deployment roadmap in CLAUDE.md).
@@ -45,6 +50,11 @@ app = FastAPI(title="mini-agent WebSocket Server")
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/mini-agent-ui")
+async def web_client():
+    return FileResponse(WEB_CLIENT_HTML, media_type="text/html")
 
 
 async def _authenticate(websocket: WebSocket, session: SessionContext) -> bool:
