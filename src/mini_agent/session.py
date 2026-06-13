@@ -19,6 +19,12 @@ class SessionContext:
         # The server holds no LLM/search keys of its own — these drive every state.
         self.usecase: str = ""
         self.collection_name: str = ""
+        # Temp folder holding the client's uploaded KB docs for this session (set when
+        # the `documents` handshake message is received; cleaned up at session end).
+        self.docs_folder: str = ""
+        # The session's KB, built once from the uploaded docs and reused by every
+        # RAG_search query (set in server._receive_documents; dropped at session end).
+        self.rag_search = None
         self.openai_api_key: str = ""
         self.tavily_api_key: str = ""
         self.agent_model: str = ""

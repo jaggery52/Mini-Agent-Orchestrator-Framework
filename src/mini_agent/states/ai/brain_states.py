@@ -1,6 +1,7 @@
 import logging
 
 from mini_agent.engine.state_memory import StateMemory
+from mini_agent.models.brain_output import TODOUpdate
 from mini_agent.session import get_session
 from mini_agent.states.ai.llm.the_brain import TheBrain
 
@@ -74,6 +75,24 @@ class BrainStates:
                 "[BRAIN] %s - answer already delivered; overriding "
                 "ready_for_answer loop to fallback_agent",
                 current_step,
+            )
+
+            # The brain repeated ready_for_answer instead of marking the plan
+            # complete (per Rule 0.5), so its TODO_updates still show the answer
+            # task "in progress". Coerce every planned item to "done" so the
+            # client's plan panel reflects the delivered answer.
+            planned_todo = StateMemory._get_memory()["state_memory"]["updated_by_the_planner"]["planned_TODO"]
+            brain_output.TODO_updates = [
+                TODOUpdate(
+                    title=item.get("title", ""),
+                    description="Answer already delivered — task complete.",
+                    status="done",
+                )
+                for item in planned_todo
+            ]
+            StateMemory.updateBrainTODO(
+                step=current_step,
+                TODO_updates=[t.model_dump() for t in brain_output.TODO_updates],
             )
 
         StateMemory.setVariable("agent_decision", effective_tool)

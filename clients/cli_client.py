@@ -19,7 +19,7 @@ async def prompt_user(prompt: str = "You: ") -> str:
     return await loop.run_in_executor(None, lambda: input(prompt))
 
 
-async def run_session(url: str, init_payload: dict) -> None:
+async def run_session(url: str, init_payload: dict, documents: list) -> None:
     print(f"\nConnecting to {url} ...\n")
 
     try:
@@ -27,12 +27,18 @@ async def run_session(url: str, init_payload: dict) -> None:
             # The server requires an `init` handshake (auth token + LLM/search keys +
             # model names + usecase) as the very first message, before anything else.
             await ws.send(json.dumps(init_payload))
+            # ...followed by the client's KB documents, which the server indexes into a
+            # per-session collection (built at session start, dropped at session end).
+            await ws.send(json.dumps({"type": "documents", "files": documents}))
 
             async for raw_message in ws:
                 message = json.loads(raw_message)
                 message_type = message.get("type")
 
-                if message_type == "acknowledgement":
+                if message_type == "kb_ready":
+                    print(f"[Knowledge base ready — {message.get('chunks', 0)} chunks indexed]")
+
+                elif message_type == "acknowledgement":
                     session_id = message.get("session_id", "")
                     print(f"[Connected] Session ID: {session_id}  (usecase: {init_payload['usecase']})")
                     print(f"\nAgent: {message.get('content', '')}\n")
@@ -107,6 +113,8 @@ def main():
                         help="Agent LLM model (env: DEFAULT_MODEL)")
     parser.add_argument("--embedding-model", default=os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
                         help="Embedding model — must match how the KB was indexed (env: EMBEDDING_MODEL)")
+    parser.add_argument("--docs", nargs="+", default=[],
+                        help="Path(s) to .txt/.md file(s) to upload as this session's knowledge base")
     args = parser.parse_args()
 
     missing = [name for name, value in (
@@ -116,6 +124,18 @@ def main():
     if missing:
         print(f"[Error] Missing required value(s): {', '.join(missing)}")
         sys.exit(1)
+
+    if not args.docs:
+        print("[Error] At least one --docs file is required (the server builds the KB from your uploads).")
+        sys.exit(1)
+
+    documents = []
+    for path in args.docs:
+        try:
+            documents.append({"name": os.path.basename(path), "content": open(path, encoding="utf-8").read()})
+        except OSError as error:
+            print(f"[Error] Could not read doc '{path}': {error}")
+            sys.exit(1)
 
     init_payload = {
         "type": "init",
@@ -129,7 +149,7 @@ def main():
     }
 
     try:
-        asyncio.run(run_session(args.url, init_payload))
+        asyncio.run(run_session(args.url, init_payload, documents))
     except KeyboardInterrupt:
         print("\n\nDisconnected.")
 

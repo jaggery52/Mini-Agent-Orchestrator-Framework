@@ -16,12 +16,12 @@ This separation was adopted deliberately, for three reasons:
 
 Every state, transition, prompt, and tool description is declared in the JSON config. Want the agent to skip the planner for simple queries? Re-route `human_input → the brain` directly. Want a confirmation step before every web search? Insert a `collect_human_input` state in front of `Internet Search Handler`. Want a different personality or stricter guardrails? Edit `agent_setup_prompt` or `analyze_instructions_prompt` in the config. None of these changes require modifying Python code — the engine reads whatever graph you give it.
 
-In practice, adding an agent is as simple as adding two folders: a state-machine config and its knowledge-base documents. This repo ships two usecases out of the box:
+In practice, adding an agent is as simple as adding one folder: a state-machine config. The knowledge base is supplied by the client at connect time, not shipped in the repo. This repo ships two usecases out of the box:
 
-- `configs/tour_agency/` + `knowledge_base/tour_agency/` — a travel-agent tour-planning setup.
-- `configs/document_helper/` + `knowledge_base/document_helper/` — a general document-Q&A setup.
+- `configs/tour_agency/` — a travel-agent tour-planning setup.
+- `configs/document_helper/` — a general document-Q&A setup.
 
-To add another usecase, create `src/mini_agent/configs/<usecase>/state_machine_config.json` and `knowledge_base/<usecase>/*.txt`, rebuild the image (which indexes the new collection — see [Knowledge Base](#knowledge-base--build-time-indexing)), and have the client select it in the `init` handshake. The same Python engine boots with the new prompts, routing, tools, and knowledge base — no code changes.
+To add another usecase, create `src/mini_agent/configs/<usecase>/state_machine_config.json` and have the client select it in the `init` handshake (and upload its docs in the `documents` message — see [Knowledge Base](#knowledge-base--per-session-client-provided)). The same Python engine boots with the new prompts, routing, and tools — no code changes.
 
 ### 2. Adding a new tool takes three small steps
 
@@ -150,45 +150,39 @@ OpenAI's **automatic prefix caching** is exploited with zero extra code:
 
 ---
 
-## Secrets — create these before deploying
+## Secrets — create this before deploying
 
-Two secret files must exist at the **repo root** before you build/run. Both are
-gitignored and never committed; in the GitHub Actions CI/CD they become repository
-secrets instead (see below).
+The server needs exactly **one** secret: `SERVER_ACCESS_TOKEN`. There is no build-time
+key — the knowledge base is built per session from client-uploaded docs, so the image
+contains no LLM key and no baked KB.
 
 | File (repo root) | Scope | Holds | Create it with |
 |------------------|-------|-------|----------------|
-| `openai_key.txt` | **Build-time only** | The raw OpenAI key on a single line | `echo -n "$OPENAI_API_KEY" > openai_key.txt` |
 | `.env` | **Runtime** | `SERVER_ACCESS_TOKEN` (WebSocket auth gate) | `cp .env.example .env` then set the token |
 
-- `openai_key.txt` is read by `docker compose build` as the `openai_key` BuildKit secret to
-  index the knowledge base into the image (`deploy/Dockerfile`). It is **never** copied into
-  the runtime image — the running containers hold no LLM/search keys.
 - `.env` is auto-loaded by `docker compose` to inject `SERVER_ACCESS_TOKEN`; with an empty
   token the server rejects every connection.
-- **CI/CD:** instead of these files, pass the build key with
-  `docker build --secret id=openai_key,env=OPENAI_API_KEY …` and set `SERVER_ACCESS_TOKEN`
-  as a runtime env — both sourced from GitHub Actions / Azure secrets.
+- **CI/CD:** set `SERVER_ACCESS_TOKEN` as a runtime env from GitHub Actions / Azure secrets.
+  The Docker build needs no secret at all.
 
 ## Quick Start — Docker + Browser UI
 
 ```bash
-# 1. Create the two secret files above (run from the repo root):
+# 1. Set the runtime secret (run from the repo root):
 cp .env.example .env                          # then set SERVER_ACCESS_TOKEN
-echo -n "$OPENAI_API_KEY" > openai_key.txt    # build-time embedding key
 
-# 2. Build (BuildKit required for the secret) and start two instances + nginx.
-DOCKER_BUILDKIT=1 docker compose build
+# 2. Build (no secret needed) and start two instances + nginx.
+docker compose build
 docker compose up -d
 ```
 
-During the build, each usecase's documents under `knowledge_base/<usecase>/` are
-indexed into its own Chroma collection and baked into the image. The running
-containers hold **no** LLM/search keys — clients supply those per connection.
+The image holds **no** KB and **no** LLM/search keys — each session builds its own
+knowledge base from the documents the client uploads in the `documents` handshake.
 
 Open `clients/web/index.html` in a browser (**no build step**). A connection dialog
-prompts for your access token (= `SERVER_ACCESS_TOKEN`), OpenAI key, usecase, and model
-names; fill them in and click **Connect** (values can be remembered in the browser).
+prompts for your access token (= `SERVER_ACCESS_TOKEN`), OpenAI key, usecase, model
+names, and the **knowledge-base files** to upload; fill them in and click **Connect**
+(non-file values can be remembered in the browser).
 
 The browser UI is a three-panel live view of the agent: an **Agent Flow** pipeline on the
 left that highlights the active agent/tool node (User → Planner → Brain → tool → Answer →
@@ -215,11 +209,8 @@ cp .env.example .env
 
 pip install -e ".[dev]"
 
-# Build the per-usecase Chroma collections once (uses OPENAI_API_KEY from your
-# shell only for this build step — the server itself never reads it):
-OPENAI_API_KEY=sk-... python -m mini_agent.build_kb
-
-# Start the WebSocket server (either form works):
+# Start the WebSocket server (either form works). No KB build step — the server
+# reads no LLM key; sessions build their KB from client-uploaded docs:
 SERVER_ACCESS_TOKEN=dev-token python -m mini_agent
 # or:  SERVER_ACCESS_TOKEN=dev-token uvicorn mini_agent.server:app --port 8000
 
@@ -227,9 +218,10 @@ SERVER_ACCESS_TOKEN=dev-token python -m mini_agent
 ruff check src tests
 pytest
 
-# Run the CLI client (reads keys/token from its own environment):
+# Run the CLI client (reads keys/token from its own environment; --docs uploads the KB):
 SERVER_ACCESS_TOKEN=dev-token OPENAI_API_KEY=sk-... \
-  python clients/cli_client.py --url ws://localhost:8000/ws --usecase tour_agency
+  python clients/cli_client.py --url ws://localhost:8000/ws --usecase tour_agency \
+  --docs examples/corpora/tour-packages.txt
 ```
 
 The browser UI (`clients/web/index.html`) and CLI client (`clients/cli_client.py`)
@@ -247,27 +239,24 @@ in the `init` handshake (see [WebSocket Protocol](#websocket-protocol)).
 | Variable | Scope | Required | Default | Description |
 |----------|-------|----------|---------|-------------|
 | `SERVER_ACCESS_TOKEN` | Server (runtime) | **Yes** | — | WebSocket auth gate — clients must present this in the `init` handshake |
-| `FORCE_REINDEX` | Build / runtime | No | `false` | Set `true` to force the RAG index to rebuild |
 | `LOG_LEVEL` | Server (runtime) | No | `INFO` | Python log level (`DEBUG`, `INFO`, `WARNING`) |
 | `LOG_FILE` | Server (runtime) | No | `logs/agent.log` | Log file path (overridden per-instance in Docker) |
-| `OPENAI_API_KEY` | **Build-time only** | Build | — | Embedding key for `build_kb`; passed as a Docker build secret, never in the runtime image |
-| `EMBEDDING_MODEL` | **Build-time only** | No | `text-embedding-3-small` | Embedding model used to index the KB at build time |
 
 The client supplies these per connection (see `clients/cli_client.py` flags / env):
-`SERVER_ACCESS_TOKEN`, `OPENAI_API_KEY` (LLM + query embeddings), optional `TAVILY_API_KEY`,
-`DEFAULT_MODEL`, `EMBEDDING_MODEL`, `USECASE`, `COLLECTION_NAME`.
+`SERVER_ACCESS_TOKEN`, `OPENAI_API_KEY` (LLM + embeddings), optional `TAVILY_API_KEY`,
+`DEFAULT_MODEL`, `EMBEDDING_MODEL`, `USECASE`, and the `--docs` files to upload.
 
 ---
 
-## Knowledge Base — build-time indexing
+## Knowledge Base — per-session, client-provided
 
-Each usecase has its own document folder, `knowledge_base/<usecase>/`, indexed into its
-own Chroma collection (collection name == usecase slug). `python -m mini_agent.build_kb`
-indexes **all** usecases; the Dockerfile runs it at build time with the embedding key
-supplied as a BuildKit secret, baking the `chroma_db/` collections into the image. At
-runtime, the client-supplied key only embeds **queries** — the server never re-indexes
-or holds an embedding key. A per-collection fingerprint (`.docs_fingerprint_<collection>`)
-skips re-indexing when the documents are unchanged.
+There is **no** build-time indexing and **no** corpus shipped in the repo. After `init`,
+the client sends a `documents` message with its `.txt`/`.md` files; the server writes them
+to a per-session temp folder, indexes them into a Chroma collection named by the session id
+(using the client's own embedding key), and replies `kb_ready`. The collection is built
+**once** and reused by every `RAG_search` query, then deleted — along with the temp folder —
+when the connection closes. The server holds no embedding key and persists no KB across
+sessions. `examples/corpora/*.txt` are sample docs you can upload to try it.
 
 ---
 
@@ -279,24 +268,32 @@ Logs are written to `logs/`
 
 ## WebSocket Protocol
 
-The connection is gated by an `init` handshake. Immediately after connecting, the client
-must send an `init` message carrying the auth token, the LLM/search keys, the model names,
-and the usecase/collection to run. The server validates the token and usecase before doing
-anything else; on failure it sends an `error` and closes with code **4001**. The server
-holds no LLM/search keys of its own — these drive every state for the session.
+The connection is gated by a two-step handshake. Immediately after connecting, the client
+must send an `init` message (auth token, LLM/search keys, model names, usecase), then a
+`documents` message carrying the `.txt`/`.md` files that make up **this session's** knowledge
+base. The server validates the token and usecase, then builds a per-session Chroma collection
+from the uploaded docs using the client's own key, replies with `kb_ready`, and only then
+accepts queries. On any failure it sends an `error` and closes with code **4001**. The server
+holds no LLM/search keys of its own and ships with no baked KB — keys and docs both arrive
+per connection, and the session's collection is deleted when the connection ends.
 
 ```
 Client → Server (FIRST message, required)
   {"type": "init",
    "token": "<SERVER_ACCESS_TOKEN>",
    "usecase": "tour_agency",
-   "collection_name": "tour_agency",
+   "collection_name": "tour_agency",     // accepted but overridden by a per-session name
    "openai_api_key": "sk-...",
    "tavily_api_key": "tvly-...",          // optional; DuckDuckGo fallback if empty
    "agent_model": "gpt-4.1-mini",
    "embedding_model": "text-embedding-3-small"}
 
+Client → Server (SECOND message, required)
+  {"type": "documents",
+   "files": [{"name": "guide.txt", "content": "..."}, ...]}   // combined ≤ 2 MB
+
 Server → Client
+  {"type": "kb_ready",           "chunks": 11}   // KB built; queries now accepted
   {"type": "acknowledgement",    "session_id": "...", "content": "What would you like to do?"}
   {"type": "agent_thinking",     "source": "planner", "goal": "...", "replan": false,
                                  "plan": [{"title": "...", "description": "...", "tool": "RAG_search"}, ...]}
@@ -341,7 +338,7 @@ A full example session — goal → plan → web search → answer → multi-tur
 
 ## Current Limitations
 
-- **Small bundled corpora** — each usecase ships one sample document under `knowledge_base/<usecase>/`. RAG is fully functional (ChromaDB + OpenAI embeddings); a production deployment would load a larger document set.
+- **Per-session upload cap** — the client uploads its KB docs each session (capped at `MAX_DOCS_BYTES`, ~2 MB combined). RAG is fully functional (ChromaDB + OpenAI embeddings); sample docs live under `examples/corpora/`. A production deployment might raise the cap or add chunked upload for larger corpora.
 - **One model for all roles** — the client-supplied `agent_model` drives the planner, brain, and response generator. A larger model can be selected per connection with no code change.
 - **Unbounded stored history** — `getBrainContext()` windows the brain prompt, but the full per-session history grows in memory until the session ends.
 - **In-memory sessions** — a restart clears all active sessions; there is no persistence layer.
@@ -388,10 +385,9 @@ mini-agent-framework/
 ├── .env.example                            # Environment variable template
 │
 ├── src/mini_agent/                         # The installable package
-│   ├── server.py                           # WebSocket server (FastAPI) — init handshake/auth + main()
+│   ├── server.py                           # WebSocket server (FastAPI) — init/documents handshake + main()
 │   ├── __main__.py                         # `python -m mini_agent`
-│   ├── build_kb.py                         # Build-time KB indexer (`python -m mini_agent.build_kb`)
-│   ├── session.py                          # SessionContext (per-connection keys/usecase) + ContextVar isolation
+│   ├── session.py                          # SessionContext (per-connection keys/usecase/KB) + ContextVar isolation
 │   ├── settings.py                         # SERVER_ACCESS_TOKEN, logging, project-root path anchors
 │   ├── engine/
 │   │   ├── state_machine.py                # Core execution engine
@@ -420,18 +416,15 @@ mini-agent-framework/
 │       ├── tour_agency/state_machine_config.json
 │       └── document_helper/state_machine_config.json
 │
-├── knowledge_base/                         # One folder per usecase → one Chroma collection
-│   ├── tour_agency/tour-packages.txt
-│   └── document_helper/framework-guide.txt
 ├── deploy/
-│   ├── Dockerfile                          # Container image; indexes the KB at build time (build secret)
+│   ├── Dockerfile                          # Container image (plain build — no secret, no baked KB)
 │   └── nginx.conf                          # nginx WebSocket proxy + upstream config
 ├── clients/
-│   ├── cli_client.py                       # CLI WebSocket test client
+│   ├── cli_client.py                       # CLI WebSocket test client (--docs uploads the KB)
 │   └── web/index.html                      # Browser WebSocket UI (open directly, no build)
 ├── examples/
 │   ├── configs/                            # Alternative agent configs (mini_agent, tour_agent)
-│   ├── corpora/                            # Matching knowledge-base documents
+│   ├── corpora/                            # Sample docs to upload as a session KB
 │   └── transcript.md                       # Real session transcript: goal → plan → execution → result
 └── tests/
     └── test_state_machine.py               # Graph-integrity checks (no network/LLM calls)

@@ -6,7 +6,6 @@ from mini_agent.states.ai.llm.fallback_agent import FallbackAgent
 from mini_agent.states.ai.llm.response_generator import ResponseGenerator
 from mini_agent.states.ai.llm.the_planner import ThePlanner
 from mini_agent.states.ai.search.internet_search import InternetSearch
-from mini_agent.states.ai.search.rag_search import RagSearch
 
 
 class ToolStates:
@@ -87,11 +86,6 @@ class ToolStates:
         logging.info(f"[INTERNET_SEARCH]  Done ({len(search_results)} chars)")
 
     def RAG_search(self, args_dict: dict) -> None:
-        api_key         = args_dict.get("api_key")        or StateMemory.getVariable("embedding_api_key")
-        embedding_model = args_dict.get("embedding_model") or StateMemory.getVariable("embedding_model")
-        collection_name = args_dict.get("collection_name") or StateMemory.getVariable("collection_name")
-        docs_folder     = args_dict.get("docs_folder")     or StateMemory.getVariable("docs_folder")
-
         query = self._get_latest_brain_param("query")
         if not query:
             query = StateMemory.getVariable("user_query")
@@ -101,15 +95,15 @@ class ToolStates:
         if session:
             session.send_sync({"type": "agent_thinking", "source": "tool", "tool": "RAG_search", "message": "Extracting data from knowledge base..."})
 
-        logging.info(f"[RAG_SEARCH] Searching collection '{collection_name}': \"{query}\"")
-        rag = RagSearch(
-            openai_api_key=api_key,
-            collection_name=collection_name,
-            docs_folder=docs_folder,
-            embedding_model=embedding_model,
-        )
-        rag.initialise()
-        search_results = rag.search(query)
+        # The KB was built once from the client's uploaded docs at session start and is
+        # held on the session — reuse it rather than re-indexing on every query.
+        rag = session.rag_search if session else None
+        if rag is None:
+            logging.warning("[RAG_SEARCH] No knowledge base for this session")
+            search_results = "No knowledge base is available for this session."
+        else:
+            logging.info(f"[RAG_SEARCH] Searching session knowledge base: \"{query}\"")
+            search_results = rag.search(query)
 
         StateMemory.updateToolOutput("RAG_search", search_results)
         StateMemory.recordToHistory({

@@ -3,7 +3,6 @@ logs/
 __pycache__/
 *.pyc
 .env
-openai_key.txt
 .git/
 .ruff_cache/
 .pytest_cache/

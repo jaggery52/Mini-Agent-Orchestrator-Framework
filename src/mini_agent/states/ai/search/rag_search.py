@@ -1,9 +1,8 @@
-import hashlib
 import logging
 import pathlib
 from typing import List, Optional
 
-from mini_agent.settings import CHROMA_DIR, FORCE_REINDEX, KNOWLEDGE_BASE_DIR
+from mini_agent.settings import CHROMA_DIR
 
 CHUNK_SIZE = 500
 CHUNK_OVERLAP = 150
@@ -14,21 +13,20 @@ class RagSearch:
     def __init__(
         self,
         openai_api_key: str,
-        collection_name: str = "mini-agent_docs",
+        collection_name: str,
         docs_folder: Optional[str] = None,
         embedding_model: str = "text-embedding-3-small",
     ):
         self.openai_api_key = openai_api_key
         self.collection_name = collection_name
-        self.docs_folder = docs_folder or str(KNOWLEDGE_BASE_DIR)
+        self.docs_folder = docs_folder
         self.embedding_model = embedding_model
         self._collection = None
         self._openai_client = None
-        # Per-collection fingerprint so each usecase's KB is tracked independently.
-        self._fingerprint_file = pathlib.Path(CHROMA_PERSIST_DIR) / f".docs_fingerprint_{collection_name}"
-
 
     def initialise(self) -> None:
+        """Create the collection and index the docs once. Built per session from the
+        client's uploaded docs (a fresh collection), then reused for every query."""
         try:
             import chromadb
             from openai import OpenAI
@@ -44,47 +42,8 @@ class RagSearch:
             metadata={"hnsw:space": "cosine"},
         )
 
-        current_fingerprint = self._docs_fingerprint()
-        stored_fingerprint = (
-            self._fingerprint_file.read_text(encoding="utf-8").strip()
-            if self._fingerprint_file.exists()
-            else None
-        )
-
-        if FORCE_REINDEX or self._collection.count() == 0 or stored_fingerprint != current_fingerprint:
-            reason = (
-                "FORCE_REINDEX set" if FORCE_REINDEX
-                else "collection empty" if self._collection.count() == 0
-                else "docs changed"
-            )
-            logging.info(f"[RAG] Reindexing ({reason}) — loading documents from '{self.docs_folder}'")
-            self._clear_collection()
-            self._load_documents()
-            self._fingerprint_file.parent.mkdir(parents=True, exist_ok=True)
-            self._fingerprint_file.write_text(current_fingerprint, encoding="utf-8")
-        else:
-            logging.info(
-                f"[RAG] docs unchanged — skipping reload "
-                f"(collection '{self.collection_name}' has {self._collection.count()} chunks)"
-            )
-
-    def _docs_fingerprint(self) -> str:
-        docs_path = pathlib.Path(self.docs_folder)
-        digest = hashlib.sha256()
-        digest.update(f"chunk={CHUNK_SIZE}:{CHUNK_OVERLAP}".encode("utf-8"))
-        if docs_path.exists():
-            for file_path in sorted(docs_path.rglob("*")):
-                if file_path.suffix.lower() not in (".txt", ".md"):
-                    continue
-                digest.update(file_path.name.encode("utf-8"))
-                digest.update(file_path.read_bytes())
-        return digest.hexdigest()
-
-    def _clear_collection(self) -> None:
-        existing_ids = self._collection.get(include=[]).get("ids", [])
-        if existing_ids:
-            self._collection.delete(ids=existing_ids)
-            logging.debug(f"[RAG] Cleared {len(existing_ids)} existing chunks before reindex")
+        logging.info(f"[RAG] Indexing documents from '{self.docs_folder}'")
+        self._load_documents()
 
     def _load_documents(self) -> None:
         docs_path = pathlib.Path(self.docs_folder)

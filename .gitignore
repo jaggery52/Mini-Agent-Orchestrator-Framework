@@ -222,5 +222,8 @@ chroma_db/
 
 # Misc
 misc/
-# Build-time embedding key secret (never commit)
+# Legacy build secret — no longer used by the build, but keep ignored so a stray
+# local copy is never committed. Safe to delete the file.
 openai_key.txt
+
+CLAUDE.md

@@ -31,14 +31,12 @@ class StateMachine:
         self.states = CustomStates()
 
         # Seed per-session memory from the WS handshake (set on the session), NOT env.
+        # The KB (collection + docs) is built once at session start and held on the
+        # session (see server._receive_documents) — no KB vars are seeded here.
         session = get_session()
-        StateMemory.setVariable("agent_model",       session.agent_model)
-        StateMemory.setVariable("agent_api_key",     session.openai_api_key)
-        StateMemory.setVariable("embedding_model",   session.embedding_model)
-        StateMemory.setVariable("embedding_api_key", session.openai_api_key)
-        StateMemory.setVariable("tavily_api_key",    session.tavily_api_key)
-        StateMemory.setVariable("collection_name",   session.collection_name)
-        StateMemory.setVariable("docs_folder",       f"knowledge_base/{session.usecase}/")
+        StateMemory.setVariable("agent_model",   session.agent_model)
+        StateMemory.setVariable("agent_api_key", session.openai_api_key)
+        StateMemory.setVariable("tavily_api_key", session.tavily_api_key)
         logging.debug("[StateMachine] Session config seeded from WS handshake")
         logging.debug(f"[StateMachine] Loaded config from {config_json_path}")
 

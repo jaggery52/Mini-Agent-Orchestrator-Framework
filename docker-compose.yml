@@ -1,20 +1,17 @@
-# The KB Chroma collections are baked into the image at build time (see deploy/Dockerfile),
-# so there is NO chroma volume and NO knowledge_base bind mount here — the image is the
-# source of truth. The running containers hold no LLM/search keys; clients supply those in
-# the WebSocket `init` handshake. The only server secret is SERVER_ACCESS_TOKEN (auth gate).
+# There is no baked KB and no build secret — each session builds its own KB from the
+# client's uploaded docs at connect time. The running containers hold no LLM/search keys;
+# clients supply those in the WebSocket `init` handshake. The only server secret is
+# SERVER_ACCESS_TOKEN (auth gate).
 #
-# Build the images (BuildKit required for the build secret):
-#   echo "$OPENAI_API_KEY" > openai_key.txt
-#   DOCKER_BUILDKIT=1 docker compose build
-# Then (with SERVER_ACCESS_TOKEN set in .env or the shell): docker compose up -d
+# Build and run (with SERVER_ACCESS_TOKEN set in .env or the shell):
+#   docker compose build
+#   docker compose up -d
 
 services:
   mini-agent-1:
     build:
       context: .
       dockerfile: deploy/Dockerfile
-      secrets:
-        - openai_key
     container_name: mini-agent-1
     environment:
       - SERVER_ACCESS_TOKEN=${SERVER_ACCESS_TOKEN}
@@ -34,8 +31,6 @@ services:
     build:
       context: .
       dockerfile: deploy/Dockerfile
-      secrets:
-        - openai_key
     container_name: mini-agent-2
     environment:
       - SERVER_ACCESS_TOKEN=${SERVER_ACCESS_TOKEN}
@@ -61,8 +56,3 @@ services:
       - mini-agent-1
       - mini-agent-2
     restart: unless-stopped
-
-# Build-time only: the embedding key used to index the KB. Never copied into the image.
-secrets:
-  openai_key:
-    file: ./openai_key.txt

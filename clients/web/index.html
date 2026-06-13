@@ -936,6 +936,11 @@
       </div>
 
       <div class="field">
+        <label for="fDocs">Knowledge base docs <span class="opt">(.txt/.md — built per session, required)</span></label>
+        <input id="fDocs" type="file" accept=".txt,.md" multiple>
+      </div>
+
+      <div class="field">
         <label for="fOpenai">OpenAI API key <span class="opt">(LLM + query embeddings)</span></label>
         <input id="fOpenai" type="password" autocomplete="off" placeholder="sk-...">
       </div>
@@ -977,6 +982,9 @@
     // injects these server-side instead of exposing them in the page.
     let wsUrl = DEFAULT_WS_URL;
     let initPayload = null;
+    // Client's KB docs, read from the file picker and sent after `init` so the server
+    // builds a per-session knowledge base.
+    let sessionDocuments = [];
 
     // ---- element handles ----------------------------------------------------
 
@@ -987,6 +995,7 @@
     const fToken = document.getElementById("fToken");
     const fUsecase = document.getElementById("fUsecase");
     const fCollection = document.getElementById("fCollection");
+    const fDocs = document.getElementById("fDocs");
     const fOpenai = document.getElementById("fOpenai");
     const fTavily = document.getElementById("fTavily");
     const fModel = document.getElementById("fModel");
@@ -1380,6 +1389,12 @@
     function handleServerMessage(message) {
       const type = message.type;
 
+      if (type === "kb_ready") {
+        setConnectionStatus("Knowledge base ready", "connected");
+        appendChatMessage("system", "Knowledge base", `Indexed ${message.chunks || 0} chunk(s) from your uploaded docs.`);
+        return;
+      }
+
       if (type === "acknowledgement") {
         const sessionId = message.session_id || "";
         setConnectionStatus(sessionId ? `Connected: ${sessionId.slice(0, 8)}…` : "Connected", "connected");
@@ -1482,6 +1497,8 @@
       socket.addEventListener("open", () => {
         setConnectionStatus("Authenticating...", "connected");
         socket.send(JSON.stringify(initPayload));
+        // The server builds a per-session KB from these before accepting messages.
+        socket.send(JSON.stringify({ type: "documents", files: sessionDocuments }));
       });
 
       socket.addEventListener("message", (event) => {
@@ -1558,7 +1575,7 @@
       }
     }
 
-    connectForm.addEventListener("submit", (event) => {
+    connectForm.addEventListener("submit", async (event) => {
       event.preventDefault();
 
       const url = fUrl.value.trim() || DEFAULT_WS_URL;
@@ -1575,6 +1592,14 @@
         showConnectError("OpenAI API key is required.");
         return;
       }
+      if (!fDocs.files || fDocs.files.length === 0) {
+        showConnectError("Upload at least one .txt/.md file — the KB is built from your docs.");
+        return;
+      }
+
+      sessionDocuments = await Promise.all(
+        Array.from(fDocs.files).map(async (file) => ({ name: file.name, content: await file.text() }))
+      );
 
       wsUrl = url;
       initPayload = {

@@ -17,9 +17,9 @@ class LifeCycleStates:
                 f"will be prefix-cached by OpenAI after first brain call)"
             )
 
-        docs_folder = args_dict.get("docs_folder", "knowledge_base/")
+        # The KB docs_folder/collection are per-session (built from the client's upload
+        # at session start) and must NOT be overridden here. Only the prompt context is set.
         knowledge_base_topics = args_dict.get("knowledge_base_topics", "")
-        StateMemory.setVariable("docs_folder", docs_folder)
         StateMemory.setVariable("knowledge_base_topics", knowledge_base_topics)
         if knowledge_base_topics:
             logging.info(f"[START] Knowledge base: {knowledge_base_topics[:120]}")
