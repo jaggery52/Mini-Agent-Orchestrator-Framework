@@ -162,8 +162,10 @@ contains no LLM key and no baked KB.
 
 - `.env` is auto-loaded by `docker compose` to inject `SERVER_ACCESS_TOKEN`; with an empty
   token the server rejects every connection.
-- **CI/CD:** set `SERVER_ACCESS_TOKEN` as a runtime env from GitHub Actions / Azure secrets.
-  The Docker build needs no secret at all.
+- **CI/CD:** the Docker build needs no secret at all. `SERVER_ACCESS_TOKEN` is set as a
+  runtime secret on the Azure Container App; GitHub Actions uses `DOCKERHUB_USERNAME` /
+  `DOCKERHUB_TOKEN` (push) and `AZURE_CREDENTIALS` (deploy). See
+  [Continuous Deployment](#continuous-deployment-github-actions--docker-hub--azure).
 
 ## Quick Start — Docker + Browser UI
 
@@ -196,6 +198,36 @@ Per-instance log files are written to `./logs/` on the host:
 logs/mini-agent-1.log
 logs/mini-agent-2.log
 ```
+---
+
+## Continuous Deployment (GitHub Actions → Docker Hub → Azure)
+
+Two workflows under `.github/workflows/` take a merge to `main` all the way to a live, updated app:
+
+```
+open PR ───────────────► ci.yml: ruff + pytest                 (gate before merge)
+merge to main ─────────► docker-publish.yml:
+                           build image (no build secret)
+                           push to Docker Hub  amroybd/mini-agent-framework
+                           az containerapp update              → Azure pulls + runs the new image
+```
+
+- **`ci.yml`** runs on every push and PRs to `main`: installs dev deps, then `ruff check .` and `pytest`.
+- **`docker-publish.yml`** runs on push to `main` and `v*` tags: builds and pushes the image (tags `latest`, `sha-<commit>`, semver), then — **on `main` only** — logs into Azure, sets the Docker Hub pull credentials on the app, and runs `az containerapp update` to roll the Container App to a new revision.
+
+> **Publish ≠ deploy.** Pushing to Docker Hub doesn't change what's running — Azure does **not** watch the registry. `az containerapp update` is the step that makes Azure pull and run the new image.
+
+**Where each secret lives:**
+
+| Secret / value | Lives on | Purpose |
+|----------------|----------|---------|
+| `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` | GitHub Actions secrets | CI pushes the image to Docker Hub |
+| `AZURE_CREDENTIALS` (service-principal JSON) | GitHub Actions secret | GitHub logs into Azure to roll the app |
+| Docker Hub **pull** credentials (registry `docker.io`) | Azure Container App | ACA pulls the private image |
+| `SERVER_ACCESS_TOKEN` | Azure Container App (secret → env var) | Gates clients connecting to `/ws` |
+
+**Azure runtime:** private image; **external ingress on port 8000** (WebSocket `/ws`, health `/health`); **min 0 / max 1 replica → scale-to-zero** (no idle cost; a few-seconds cold start on the first connection, stays warm while a socket is open). The per-session KB is ephemeral, so no persistent storage is required.
+
 ---
 
 ## Local Development (no Docker)
@@ -370,7 +402,7 @@ A full example session — goal → plan → web search → answer → multi-tur
 **Operations & quality**
 - Structured tracing (OpenTelemetry spans) for every brain call, tool invocation, and token cost.
 - Token auth on the WebSocket is in place (`SERVER_ACCESS_TOKEN` in the `init` handshake); still to add: per-user identity (JWT/expiry), rate-limiting, and per-session quotas.
-- A CI/CD pipeline (lint → test → build → publish image) wired to the existing `ruff` / `pytest` / Docker targets.
+- ✅ A CI/CD pipeline (lint → test → build → publish image → deploy to Azure Container Apps) wired to the existing `ruff` / `pytest` / Docker targets (done — see [Continuous Deployment](#continuous-deployment-github-actions--docker-hub--azure)).
 - Expanded automated test coverage: tool handlers, memory windowing, and an end-to-end session simulation against a mocked LLM.
 
 ---
@@ -383,6 +415,10 @@ mini-agent-framework/
 ├── docker-compose.yml                      # Two service instances + nginx load balancer
 ├── README.md                               # This file
 ├── .env.example                            # Environment variable template
+│
+├── .github/workflows/
+│   ├── ci.yml                              # CI: ruff + pytest on push / PRs to main
+│   └── docker-publish.yml                  # Build → push to Docker Hub → deploy to Azure (on main)
 │
 ├── src/mini_agent/                         # The installable package
 │   ├── server.py                           # WebSocket server (FastAPI) — init/documents handshake + main()
