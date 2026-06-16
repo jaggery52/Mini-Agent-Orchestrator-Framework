@@ -766,6 +766,65 @@
       font-size: 12.5px;
     }
     .dialog-error.visible { display: block; }
+
+    .account-box {
+      margin: 0 0 14px;
+      padding: 12px;
+      border: 1px solid var(--accent-border);
+      border-radius: 8px;
+      background: var(--accent-soft);
+      font-size: 12.5px;
+    }
+    .account-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .account-row + .account-row { margin-top: 8px; }
+    .account-note { margin: 6px 0; color: var(--muted); }
+    .link-button {
+      border: none;
+      background: none;
+      padding: 0;
+      color: var(--accent);
+      font-size: 12.5px;
+      cursor: pointer;
+      text-decoration: underline;
+    }
+    .token-display {
+      display: block;
+      margin-top: 8px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      background: var(--muted-bg);
+      color: var(--text);
+      word-break: break-all;
+      font-size: 11.5px;
+    }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 24px;
+      transform: translateX(-50%) translateY(12px);
+      max-width: 90vw;
+      padding: 11px 16px;
+      border: 1px solid var(--accent-border);
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--text);
+      box-shadow: 0 8px 30px rgba(31, 41, 51, 0.12);
+      font-size: 13px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease, transform 0.2s ease;
+      z-index: 50;
+    }
+    .toast.visible {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
   </style>
 </head>
 <body>
@@ -906,19 +965,27 @@
   <dialog id="connectDialog">
     <form id="connectForm" method="dialog" class="dialog-body">
       <h2>Connect to the agent</h2>
-      <p class="hint">Your token, API keys and model names are sent in the WebSocket
+      <p class="hint">Your API keys and model names are sent in the WebSocket
         <code>init</code> handshake. They are kept in this browser only.</p>
 
       <p class="dialog-error" id="connectError"></p>
 
-      <div class="field">
-        <label for="fUrl">Server URL</label>
-        <input id="fUrl" type="text" autocomplete="off" placeholder="ws://localhost:80/ws">
+      <div class="account-box">
+        <div class="account-row">
+          <span>Signed in as <strong id="accountEmail"></strong></span>
+          <button type="button" class="link-button" id="signOutButton">Sign out</button>
+        </div>
+        <p class="account-note">The agent connects with your personal access token — no need to enter it.</p>
+        <div class="account-row">
+          <button type="button" class="secondary-button" id="viewTokenButton">View token</button>
+          <button type="button" class="secondary-button" id="regenTokenButton">Regenerate</button>
+        </div>
+        <code class="token-display" id="tokenDisplay" style="display:none;"></code>
       </div>
 
       <div class="field">
-        <label for="fToken">Access token <span class="opt">(SERVER_ACCESS_TOKEN)</span></label>
-        <input id="fToken" type="password" autocomplete="off" placeholder="server access token">
+        <label for="fUrl">Server URL</label>
+        <input id="fUrl" type="text" autocomplete="off" placeholder="ws://localhost:80/ws">
       </div>
 
       <div class="field-row">
@@ -971,7 +1038,21 @@
     </form>
   </dialog>
 
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
   <script>
+    // ---- Auth guard: require a signed-in user, else go to the login page --------
+    const USER_KEY = "miniAgentUser";
+    let currentUser = null;
+    try {
+      currentUser = JSON.parse(localStorage.getItem(USER_KEY));
+    } catch (error) {
+      currentUser = null;
+    }
+    if (!currentUser || !currentUser.token) {
+      location.replace("/login");
+    }
+
     // When the page is served over HTTP(S), default the form to a same-origin WebSocket
     // (e.g. wss://<host>/ws on Azure). Opened from disk (file://) it falls back to localhost.
     const DEFAULT_WS_URL =
@@ -997,7 +1078,6 @@
     const connectForm = document.getElementById("connectForm");
     const connectError = document.getElementById("connectError");
     const fUrl = document.getElementById("fUrl");
-    const fToken = document.getElementById("fToken");
     const fUsecase = document.getElementById("fUsecase");
     const fCollection = document.getElementById("fCollection");
     const fDocs = document.getElementById("fDocs");
@@ -1007,6 +1087,12 @@
     const fEmbed = document.getElementById("fEmbed");
     const fRemember = document.getElementById("fRemember");
     const settingsButton = document.getElementById("settingsButton");
+    const accountEmail = document.getElementById("accountEmail");
+    const signOutButton = document.getElementById("signOutButton");
+    const viewTokenButton = document.getElementById("viewTokenButton");
+    const regenTokenButton = document.getElementById("regenTokenButton");
+    const tokenDisplay = document.getElementById("tokenDisplay");
+    const toast = document.getElementById("toast");
 
     const chatLog = document.getElementById("chatLog");
     const connectionStatus = document.getElementById("connectionStatus");
@@ -1549,7 +1635,6 @@
     function prefillConnectForm() {
       const saved = loadStoredConnection();
       fUrl.value = saved.url || DEFAULT_WS_URL;
-      fToken.value = saved.token || "";
       fUsecase.value = saved.usecase || "tour_agency";
       fCollection.value = saved.collection_name || "";
       fOpenai.value = saved.openai_api_key || "";
@@ -1584,13 +1669,12 @@
       event.preventDefault();
 
       const url = fUrl.value.trim() || DEFAULT_WS_URL;
-      const token = fToken.value.trim();
       const usecase = fUsecase.value.trim();
       const collection = fCollection.value.trim() || usecase;
       const openaiKey = fOpenai.value.trim();
 
-      if (!token) {
-        showConnectError("Access token is required.");
+      if (!currentUser || !currentUser.token) {
+        location.replace("/login");
         return;
       }
       if (!openaiKey) {
@@ -1609,7 +1693,7 @@
       wsUrl = url;
       initPayload = {
         type: "init",
-        token,
+        token: currentUser.token,
         usecase,
         collection_name: collection,
         openai_api_key: openaiKey,
@@ -1618,9 +1702,11 @@
         embedding_model: fEmbed.value.trim() || "text-embedding-3-small",
       };
 
+      // The access token is never stored here — it lives in the user session
+      // (miniAgentUser) set at login. Only connection prefs/keys are remembered.
       if (fRemember.checked) {
         localStorage.setItem(STORE_KEY, JSON.stringify({
-          url, token, usecase, collection_name: collection,
+          url, usecase, collection_name: collection,
           openai_api_key: openaiKey, tavily_api_key: fTavily.value.trim(),
           agent_model: initPayload.agent_model, embedding_model: initPayload.embedding_model,
           remember: true,
@@ -1630,6 +1716,7 @@
       }
 
       connectDialog.close();
+      showToast(`Connecting as ${currentUser.email} using your access token.`);
       connect();
     });
 
@@ -1651,6 +1738,65 @@
 
     reconnectButton.addEventListener("click", connect);
     settingsButton.addEventListener("click", openConnectDialog);
+
+    // ---- Account / access token --------------------------------------------
+
+    let toastTimer = null;
+    function showToast(text) {
+      toast.textContent = text;
+      toast.classList.add("visible");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove("visible"), 4000);
+    }
+
+    function renderAccount() {
+      accountEmail.textContent = currentUser ? currentUser.email : "";
+      tokenDisplay.style.display = "none";
+    }
+
+    signOutButton.addEventListener("click", () => {
+      localStorage.removeItem(USER_KEY);
+      location.replace("/login");
+    });
+
+    viewTokenButton.addEventListener("click", () => {
+      const shown = tokenDisplay.style.display !== "none";
+      if (shown) {
+        tokenDisplay.style.display = "none";
+        viewTokenButton.textContent = "View token";
+      } else {
+        tokenDisplay.textContent = currentUser.token;
+        tokenDisplay.style.display = "block";
+        viewTokenButton.textContent = "Hide token";
+      }
+    });
+
+    regenTokenButton.addEventListener("click", async () => {
+      if (!confirm("Generate a new access token? The current one stops working immediately.")) return;
+      regenTokenButton.disabled = true;
+      try {
+        const res = await fetch("/api/token/regenerate", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ token: currentUser.token }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showToast(data.detail || "Could not regenerate the token.");
+          return;
+        }
+        currentUser.token = data.token;
+        localStorage.setItem(USER_KEY, JSON.stringify(currentUser));
+        tokenDisplay.textContent = currentUser.token;
+        tokenDisplay.style.display = "block";
+        viewTokenButton.textContent = "Hide token";
+        showToast("New access token generated and saved in this browser.");
+      } finally {
+        regenTokenButton.disabled = false;
+      }
+    });
+
+    renderAccount();
 
     // On load: ask for connection details instead of auto-connecting.
     openConnectDialog();

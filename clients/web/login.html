@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in — Mini Agent</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f3f5f7;
+      --panel: #ffffff;
+      --border: #d9dde3;
+      --text: #1f2933;
+      --muted: #67717f;
+      --accent: #1d4ed8;
+      --error: #b42318;
+      --error-bg: #fff0ed;
+      --ok: #16a34a;
+      --ok-bg: #ecf8ef;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 15px;
+      line-height: 1.45;
+      padding: 16px;
+    }
+    .card {
+      width: 100%;
+      max-width: 380px;
+      padding: 28px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--panel);
+      box-shadow: 0 8px 30px rgba(31, 41, 51, 0.06);
+    }
+    h1 { margin: 0 0 4px; font-size: 22px; }
+    .sub { margin: 0 0 20px; color: var(--muted); font-size: 14px; }
+    .field { margin-bottom: 14px; }
+    label { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 600; }
+    input {
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 15px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--text);
+    }
+    input:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: var(--accent); }
+    button.primary {
+      width: 100%;
+      margin-top: 6px;
+      padding: 11px 12px;
+      font-size: 15px;
+      font-weight: 600;
+      color: #fff;
+      background: var(--accent);
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    button.primary:disabled { opacity: 0.6; cursor: default; }
+    .alt { margin-top: 18px; text-align: center; font-size: 14px; color: var(--muted); }
+    .alt a { color: var(--accent); text-decoration: none; font-weight: 600; }
+    .msg { margin: 0 0 14px; padding: 10px 12px; border-radius: 8px; font-size: 13px; display: none; }
+    .msg.error { display: block; color: var(--error); background: var(--error-bg); }
+    .msg.ok { display: block; color: var(--ok); background: var(--ok-bg); }
+  </style>
+</head>
+<body>
+  <form class="card" id="loginForm">
+    <h1>Sign in</h1>
+    <p class="sub">Use your account to access the Mini Agent UI.</p>
+
+    <p class="msg" id="msg"></p>
+
+    <div class="field">
+      <label for="email">Email</label>
+      <input id="email" type="email" autocomplete="username" placeholder="you@example.com" required>
+    </div>
+    <div class="field">
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password" placeholder="your password" required>
+    </div>
+
+    <button class="primary" id="submit" type="submit">Sign in</button>
+
+    <p class="alt">No account? <a href="/create-account">Create one</a></p>
+  </form>
+
+  <script>
+    const USER_KEY = "miniAgentUser";
+    const form = document.getElementById("loginForm");
+    const submit = document.getElementById("submit");
+    const msg = document.getElementById("msg");
+
+    // Already signed in → go straight to the app.
+    if (localStorage.getItem(USER_KEY)) {
+      location.replace("/mini-agent-ui");
+    }
+
+    function showMsg(text, kind) {
+      msg.textContent = text;
+      msg.className = "msg " + kind;
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      showMsg("", "");
+      submit.disabled = true;
+      try {
+        const res = await fetch("/api/login", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            email: document.getElementById("email").value.trim(),
+            password: document.getElementById("password").value,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showMsg(data.detail || "Sign in failed.", "error");
+          submit.disabled = false;
+          return;
+        }
+        localStorage.setItem(USER_KEY, JSON.stringify(data));
+        location.replace("/mini-agent-ui");
+      } catch (error) {
+        showMsg("Could not reach the server. Try again.", "error");
+        submit.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

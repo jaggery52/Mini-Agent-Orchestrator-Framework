@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Create account — Mini Agent</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f3f5f7;
+      --panel: #ffffff;
+      --border: #d9dde3;
+      --text: #1f2933;
+      --muted: #67717f;
+      --accent: #1d4ed8;
+      --error: #b42318;
+      --error-bg: #fff0ed;
+      --ok: #16a34a;
+      --ok-bg: #ecf8ef;
+      --code-bg: #f0f2f5;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 15px;
+      line-height: 1.45;
+      padding: 16px;
+    }
+    .card {
+      width: 100%;
+      max-width: 400px;
+      padding: 28px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--panel);
+      box-shadow: 0 8px 30px rgba(31, 41, 51, 0.06);
+    }
+    h1 { margin: 0 0 4px; font-size: 22px; }
+    .sub { margin: 0 0 20px; color: var(--muted); font-size: 14px; }
+    .field { margin-bottom: 14px; }
+    label { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 600; }
+    .opt { font-weight: 400; color: var(--muted); }
+    input {
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 15px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--text);
+    }
+    input:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: var(--accent); }
+    button.primary {
+      width: 100%;
+      margin-top: 6px;
+      padding: 11px 12px;
+      font-size: 15px;
+      font-weight: 600;
+      color: #fff;
+      background: var(--accent);
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    button.primary:disabled { opacity: 0.6; cursor: default; }
+    .alt { margin-top: 18px; text-align: center; font-size: 14px; color: var(--muted); }
+    .alt a { color: var(--accent); text-decoration: none; font-weight: 600; }
+    .msg { margin: 0 0 14px; padding: 10px 12px; border-radius: 8px; font-size: 13px; display: none; }
+    .msg.error { display: block; color: var(--error); background: var(--error-bg); }
+    .token-box {
+      margin: 0 0 16px;
+      padding: 12px 14px;
+      border-radius: 8px;
+      background: var(--ok-bg);
+      color: var(--ok);
+      font-size: 13px;
+    }
+    .token-box code {
+      display: block;
+      margin-top: 8px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      background: var(--code-bg);
+      color: var(--text);
+      word-break: break-all;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <form class="card" id="signupForm">
+    <h1>Create account</h1>
+    <p class="sub">Sign up with your name, email and a password.</p>
+
+    <p class="msg" id="msg"></p>
+    <div class="token-box" id="tokenBox" style="display:none;">
+      Account created. This is your personal access token (also saved in this browser):
+      <code id="tokenValue"></code>
+    </div>
+
+    <div class="field">
+      <label for="name">Name</label>
+      <input id="name" type="text" autocomplete="name" placeholder="Ada Lovelace" required>
+    </div>
+    <div class="field">
+      <label for="email">Email <span class="opt">(your username)</span></label>
+      <input id="email" type="email" autocomplete="username" placeholder="you@example.com" required>
+    </div>
+    <div class="field">
+      <label for="password">Password <span class="opt">(min 6 characters)</span></label>
+      <input id="password" type="password" autocomplete="new-password" placeholder="choose a password" required>
+    </div>
+
+    <button class="primary" id="submit" type="submit">Create account</button>
+
+    <p class="alt">Already have an account? <a href="/login">Sign in</a></p>
+  </form>
+
+  <script>
+    const USER_KEY = "miniAgentUser";
+    const form = document.getElementById("signupForm");
+    const submit = document.getElementById("submit");
+    const msg = document.getElementById("msg");
+    const tokenBox = document.getElementById("tokenBox");
+    const tokenValue = document.getElementById("tokenValue");
+
+    // Once an account exists, the same button/form just continues to the app.
+    let created = false;
+
+    function showError(text) {
+      msg.textContent = text;
+      msg.className = "msg error";
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (created) {
+        location.replace("/mini-agent-ui");
+        return;
+      }
+      msg.className = "msg";
+      submit.disabled = true;
+      try {
+        const res = await fetch("/api/register", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            name: document.getElementById("name").value.trim(),
+            email: document.getElementById("email").value.trim(),
+            password: document.getElementById("password").value,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showError(data.detail || "Could not create the account.");
+          submit.disabled = false;
+          return;
+        }
+        // Store the session and show the issued token before moving on.
+        localStorage.setItem(USER_KEY, JSON.stringify(data));
+        tokenValue.textContent = data.token;
+        tokenBox.style.display = "block";
+        submit.textContent = "Continue to app";
+        submit.disabled = false;
+        created = true;
+      } catch (error) {
+        showError("Could not reach the server. Try again.");
+        submit.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

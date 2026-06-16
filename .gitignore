@@ -220,6 +220,12 @@ __marimo__/
 # Vector database
 chroma_db/
 
+# User-account SQLite store (created at runtime; mounted as a volume in Docker)
+data/
+*.db
+*.db-wal
+*.db-shm
+
 # Misc
 misc/
 # Legacy build secret — no longer used by the build, but keep ignored so a stray

@@ -15,6 +15,9 @@ class SessionContext:
         self.input_queue: queue.Queue = queue.Queue()
         self.should_stop: bool = False
 
+        # Email of the authenticated user (resolved from the per-user access token in
+        # the `init` handshake; used for log lines).
+        self.user_email: str = ""
         # Per-connection config supplied by the client in the `init` handshake.
         # The server holds no LLM/search keys of its own — these drive every state.
         self.usecase: str = ""

@@ -150,28 +150,39 @@ OpenAI's **automatic prefix caching** is exploited with zero extra code:
 
 ---
 
-## Secrets — create this before deploying
+## Auth — per-user accounts
 
-The server needs exactly **one** secret: `SERVER_ACCESS_TOKEN`. There is no build-time
-key — the knowledge base is built per session from client-uploaded docs, so the image
-contains no LLM key and no baked KB.
+Auth is **per user**, not a shared secret. A user signs up (name / email / password) and
+is issued a personal **access token**; the WebSocket `init` handshake must present a valid
+user token or the connection is rejected (close 4001). Accounts live in a lightweight
+**SQLite** file (`USERS_DB_PATH`, default `data/users.db`) — passwords are hashed with
+PBKDF2-HMAC-SHA256 + a per-user salt, never stored in plaintext. There is **no**
+`SERVER_ACCESS_TOKEN` and no build-time key; the image contains no LLM key and no baked KB.
 
-| File (repo root) | Scope | Holds | Create it with |
-|------------------|-------|-------|----------------|
-| `.env` | **Runtime** | `SERVER_ACCESS_TOKEN` (WebSocket auth gate) | `cp .env.example .env` then set the token |
+HTTP endpoints (served by the same FastAPI app):
 
-- `.env` is auto-loaded by `docker compose` to inject `SERVER_ACCESS_TOKEN`; with an empty
-  token the server rejects every connection.
-- **CI/CD:** the Docker build needs no secret at all. `SERVER_ACCESS_TOKEN` is set as a
-  runtime secret on the Azure Container App; GitHub Actions uses `DOCKERHUB_USERNAME` /
+| Method / path | Body | Returns |
+|---------------|------|---------|
+| `POST /api/register` | `{name, email, password}` | `201 {name, email, token}` · `409` if email taken |
+| `POST /api/login` | `{email, password}` | `200 {name, email, token}` · `401` on bad creds |
+| `POST /api/token/regenerate` | `{token}` | `200 {token}` (new token; old one stops working) · `401` |
+
+Pages: `GET /create-account`, `GET /login`, `GET /mini-agent-ui` (the agent UI). `GET /`
+redirects to `/login`.
+
+- The SQLite file is auto-created on first boot. In Docker it is a volume (`./data`) shared
+  by both replicas so accounts persist across restarts.
+- **CI/CD:** the Docker build needs no secret. GitHub Actions uses `DOCKERHUB_USERNAME` /
   `DOCKERHUB_TOKEN` (push) and `AZURE_CREDENTIALS` (deploy). See
   [Continuous Deployment](#continuous-deployment-github-actions--docker-hub--azure).
+- **Azure note:** Container Apps' default filesystem is ephemeral, so for the SQLite file to
+  survive restarts/scale-to-zero mount an **Azure Files** volume at `/app/data`.
 
 ## Quick Start — Docker + Browser UI
 
 ```bash
-# 1. Set the runtime secret (run from the repo root):
-cp .env.example .env                          # then set SERVER_ACCESS_TOKEN
+# 1. (Optional) point the user DB elsewhere; defaults to ./data/users.db.
+cp .env.example .env
 
 # 2. Build (no secret needed) and start two instances + nginx.
 docker compose build
@@ -181,9 +192,11 @@ docker compose up -d
 The image holds **no** KB and **no** LLM/search keys — each session builds its own
 knowledge base from the documents the client uploads in the `documents` handshake.
 
-Open `clients/web/index.html` in a browser (**no build step**). A connection dialog
-prompts for your access token (= `SERVER_ACCESS_TOKEN`), OpenAI key, usecase, model
-names, and the **knowledge-base files** to upload; fill them in and click **Connect**
+Open `http://localhost/` in a browser (**no build step**). You'll land on **Sign in** →
+**Create account** if you're new; after login you reach the agent UI. Its connection dialog
+prompts for your OpenAI key, usecase, model names, and the **knowledge-base files** to
+upload — the access token is supplied automatically from your account (a popup confirms it,
+and you can view or regenerate it from the dialog). Fill the rest in and click **Connect**
 (non-file values can be remembered in the browser).
 
 The browser UI is a three-panel live view of the agent: an **Agent Flow** pipeline on the
@@ -224,9 +237,8 @@ merge to main ─────────► docker-publish.yml:
 | `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` | GitHub Actions secrets | CI pushes the image to Docker Hub |
 | `AZURE_CREDENTIALS` (service-principal JSON) | GitHub Actions secret | GitHub logs into Azure to roll the app |
 | Docker Hub **pull** credentials (registry `docker.io`) | Azure Container App | ACA pulls the private image |
-| `SERVER_ACCESS_TOKEN` | Azure Container App (secret → env var) | Gates clients connecting to `/ws` |
 
-**Azure runtime:** private image; **external ingress on port 8000** (WebSocket `/ws`, health `/health`); **min 0 / max 1 replica → scale-to-zero** (no idle cost; a few-seconds cold start on the first connection, stays warm while a socket is open). The per-session KB is ephemeral, so no persistent storage is required.
+**Azure runtime:** private image; **external ingress on port 8000** (WebSocket `/ws`, health `/health`); **min 0 / max 1 replica → scale-to-zero** (no idle cost; a few-seconds cold start on the first connection, stays warm while a socket is open). The per-session KB is ephemeral. The user-account SQLite file is the only state that must persist — mount an **Azure Files** volume at `/app/data` (`USERS_DB_PATH=/app/data/users.db`) so accounts survive restarts and scale-to-zero.
 
 ---
 
@@ -236,27 +248,31 @@ The project is a standard `src/`-layout Python package. Install it (and dev tool
 in editable mode, then run the server directly:
 
 ```bash
-# Python 3.11+. Set SERVER_ACCESS_TOKEN in .env first.
+# Python 3.11+. The user-account DB is auto-created at ./data/users.db.
 cp .env.example .env
 
 pip install -e ".[dev]"
 
-# Start the WebSocket server (either form works). No KB build step — the server
+# Start the WebSocket + HTTP server (either form works). No KB build step — the server
 # reads no LLM key; sessions build their KB from client-uploaded docs:
-SERVER_ACCESS_TOKEN=dev-token python -m mini_agent
-# or:  SERVER_ACCESS_TOKEN=dev-token uvicorn mini_agent.server:app --port 8000
+python -m mini_agent
+# or:  uvicorn mini_agent.server:app --port 8000
 
 # Lint and test:
 ruff check src tests
 pytest
 
-# Run the CLI client (reads keys/token from its own environment; --docs uploads the KB):
-SERVER_ACCESS_TOKEN=dev-token OPENAI_API_KEY=sk-... \
+# Create an account, then grab a token to use with the CLI client:
+curl -XPOST localhost:8000/api/register -H 'content-type: application/json' \
+  -d '{"name":"Dev","email":"dev@example.com","password":"secret1"}'
+
+# Run the CLI client (pass the per-user token via --token / env; --docs uploads the KB):
+OPENAI_API_KEY=sk-... \
   python clients/cli_client.py --url ws://localhost:8000/ws --usecase tour_agency \
-  --docs examples/corpora/tour-packages.txt
+  --token <your-user-token> --docs examples/corpora/tour-packages.txt
 ```
 
-The browser UI (`clients/web/index.html`) and CLI client (`clients/cli_client.py`)
+The browser UI (open `http://localhost/`) and CLI client (`clients/cli_client.py`)
 default to the Docker load balancer on port 80 — point them at `ws://localhost:8000/ws`
 when running a single local server.
 
@@ -270,13 +286,15 @@ in the `init` handshake (see [WebSocket Protocol](#websocket-protocol)).
 
 | Variable | Scope | Required | Default | Description |
 |----------|-------|----------|---------|-------------|
-| `SERVER_ACCESS_TOKEN` | Server (runtime) | **Yes** | — | WebSocket auth gate — clients must present this in the `init` handshake |
+| `USERS_DB_PATH` | Server (runtime) | No | `data/users.db` | SQLite file for user accounts + access tokens (auto-created) |
 | `LOG_LEVEL` | Server (runtime) | No | `INFO` | Python log level (`DEBUG`, `INFO`, `WARNING`) |
 | `LOG_FILE` | Server (runtime) | No | `logs/agent.log` | Log file path (overridden per-instance in Docker) |
 
-The client supplies these per connection (see `clients/cli_client.py` flags / env):
-`SERVER_ACCESS_TOKEN`, `OPENAI_API_KEY` (LLM + embeddings), optional `TAVILY_API_KEY`,
-`DEFAULT_MODEL`, `EMBEDDING_MODEL`, `USECASE`, and the `--docs` files to upload.
+The WebSocket auth gate is the per-user **access token** (issued at signup via
+`POST /api/register`), presented in the `init` handshake — not an env var. The client also
+supplies per connection (see `clients/cli_client.py` flags / env): `OPENAI_API_KEY` (LLM +
+embeddings), optional `TAVILY_API_KEY`, `DEFAULT_MODEL`, `EMBEDDING_MODEL`, `USECASE`, and
+the `--docs` files to upload.
 
 ---
 
@@ -301,9 +319,9 @@ Logs are written to `logs/`
 ## WebSocket Protocol
 
 The connection is gated by a two-step handshake. Immediately after connecting, the client
-must send an `init` message (auth token, LLM/search keys, model names, usecase), then a
-`documents` message carrying the `.txt`/`.md` files that make up **this session's** knowledge
-base. The server validates the token and usecase, then builds a per-session Chroma collection
+must send an `init` message (per-user access token, LLM/search keys, model names, usecase),
+then a `documents` message carrying the `.txt`/`.md` files that make up **this session's**
+knowledge base. The server validates the token against the user DB and the usecase, then builds a per-session Chroma collection
 from the uploaded docs using the client's own key, replies with `kb_ready`, and only then
 accepts queries. On any failure it sends an `error` and closes with code **4001**. The server
 holds no LLM/search keys of its own and ships with no baked KB — keys and docs both arrive
@@ -312,7 +330,7 @@ per connection, and the session's collection is deleted when the connection ends
 ```
 Client → Server (FIRST message, required)
   {"type": "init",
-   "token": "<SERVER_ACCESS_TOKEN>",
+   "token": "<your per-user access token>",
    "usecase": "tour_agency",
    "collection_name": "tour_agency",     // accepted but overridden by a per-session name
    "openai_api_key": "sk-...",
@@ -374,7 +392,7 @@ A full example session — goal → plan → web search → answer → multi-tur
 - **One model for all roles** — the client-supplied `agent_model` drives the planner, brain, and response generator. A larger model can be selected per connection with no code change.
 - **Unbounded stored history** — `getBrainContext()` windows the brain prompt, but the full per-session history grows in memory until the session ends.
 - **In-memory sessions** — a restart clears all active sessions; there is no persistence layer.
-- **Shared-secret auth** — the WebSocket is gated by a single `SERVER_ACCESS_TOKEN`; there is no per-user identity, rate-limiting, or JWT/expiry yet.
+- **Per-user token auth** — users sign up (name / email / password, hashed with PBKDF2) and the WebSocket is gated by a per-user access token stored in SQLite. Tokens are long-lived (regenerate to rotate); rate-limiting, token expiry/refresh, and roles are not implemented yet.
 - **Client holds the keys** — LLM/search keys travel in the `init` message, so clients are trusted. Use TLS (`wss://`) in production and treat the browser UI's inline keys accordingly.
 
 ---
@@ -401,7 +419,7 @@ A full example session — goal → plan → web search → answer → multi-tur
 
 **Operations & quality**
 - Structured tracing (OpenTelemetry spans) for every brain call, tool invocation, and token cost.
-- Token auth on the WebSocket is in place (`SERVER_ACCESS_TOKEN` in the `init` handshake); still to add: per-user identity (JWT/expiry), rate-limiting, and per-session quotas.
+- Per-user account auth on the WebSocket is in place (signup/login → personal access token in the `init` handshake, backed by SQLite); still to add: token expiry/refresh, rate-limiting, and per-session quotas.
 - ✅ A CI/CD pipeline (lint → test → build → publish image → deploy to Azure Container Apps) wired to the existing `ruff` / `pytest` / Docker targets (done — see [Continuous Deployment](#continuous-deployment-github-actions--docker-hub--azure)).
 - Expanded automated test coverage: tool handlers, memory windowing, and an end-to-end session simulation against a mocked LLM.
 
@@ -421,10 +439,11 @@ mini-agent-framework/
 │   └── docker-publish.yml                  # Build → push to Docker Hub → deploy to Azure (on main)
 │
 ├── src/mini_agent/                         # The installable package
-│   ├── server.py                           # WebSocket server (FastAPI) — init/documents handshake + main()
+│   ├── server.py                           # WebSocket + HTTP server (FastAPI) — account /api routes, init/documents handshake + main()
 │   ├── __main__.py                         # `python -m mini_agent`
 │   ├── session.py                          # SessionContext (per-connection keys/usecase/KB) + ContextVar isolation
-│   ├── settings.py                         # SERVER_ACCESS_TOKEN, logging, project-root path anchors
+│   ├── settings.py                         # USERS_DB path, logging, project-root path anchors
+│   ├── db/                                 # SQLite user accounts + access tokens (database.py, users.py)
 │   ├── engine/
 │   │   ├── state_machine.py                # Core execution engine
 │   │   └── state_memory.py                 # Session state store (ContextVar-isolated)

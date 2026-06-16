@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Mini-Agent · Flow Builder</title>
+
+<!-- Drawflow: buildless drag-drop node editor, loaded from CDN -->
+<link rel="stylesheet" href="https://unpkg.com/drawflow@0.0.59/dist/drawflow.min.css" />
+<script src="https://unpkg.com/drawflow@0.0.59/dist/drawflow.min.js"></script>
+
+<style>
+  :root {
+    --bg: #0e1117;
+    --panel: #161b22;
+    --panel-2: #1c2330;
+    --border: #2a3140;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --accent-2: #3fb950;
+    --danger: #f85149;
+    --warn: #d29922;
+    --radius: 8px;
+    --canvas-grid: #1a2030;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: grid;
+    grid-template-rows: auto 1fr;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  header .tag { font-size: 11px; color: var(--muted); border: 1px solid var(--border); padding: 2px 8px; border-radius: 999px; }
+  header .spacer { flex: 1; }
+  button {
+    font: inherit;
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 7px 12px;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #04121f; border-color: var(--accent); font-weight: 600; }
+  button.ghost { background: transparent; }
+
+  .layout { display: grid; grid-template-columns: 200px 1fr 320px; height: 100%; min-height: 0; }
+
+  /* ---- palette ---- */
+  .palette { background: var(--panel); border-right: 1px solid var(--border); padding: 12px; overflow-y: auto; }
+  .palette h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 4px 0 10px; }
+  .palette-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 10px; margin-bottom: 8px;
+    background: var(--panel-2); border: 1px solid var(--border); border-left: 3px solid var(--accent);
+    border-radius: 6px; cursor: grab; font-size: 13px; user-select: none;
+  }
+  .palette-item:hover { border-color: var(--accent); }
+  .palette-item .fn { font-size: 10px; color: var(--muted); margin-left: auto; }
+  .palette-note { font-size: 11px; color: var(--muted); line-height: 1.5; margin-top: 10px; }
+
+  /* ---- canvas ---- */
+  .canvas-wrap { position: relative; min-width: 0; }
+  #drawflow {
+    width: 100%; height: 100%;
+    background: var(--bg);
+    background-image:
+      linear-gradient(var(--canvas-grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--canvas-grid) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+  .canvas-hint {
+    position: absolute; left: 12px; bottom: 12px; z-index: 5;
+    font-size: 11px; color: var(--muted); background: rgba(13,17,23,.8);
+    border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; pointer-events: none;
+  }
+
+  /* node look */
+  #drawflow .drawflow-node {
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text); padding: 0; min-width: 170px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.35);
+  }
+  #drawflow .drawflow-node.selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(88,166,255,.4); }
+  .sm-node { padding: 10px 12px; }
+  .sm-node .sm-node-title { font-size: 13px; font-weight: 600; }
+  .sm-node .sm-node-func { font-size: 10px; color: var(--muted); margin-top: 3px; font-family: ui-monospace, monospace; }
+  #drawflow .drawflow-node .input, #drawflow .drawflow-node .output { background: var(--accent); border: 2px solid var(--bg); }
+  /* per-function accent stripe */
+  .sm-node { border-left: 3px solid var(--accent); border-radius: 6px; }
+  .drawflow-node.sm-start .sm-node { border-left-color: var(--accent-2); }
+  .drawflow-node.sm-the_brain .sm-node { border-left-color: #bc8cff; }
+  .drawflow-node.sm-end .sm-node { border-left-color: var(--danger); }
+  .drawflow-node.sm-the_planner .sm-node { border-left-color: var(--warn); }
+
+  /* ---- properties ---- */
+  .props { background: var(--panel); border-left: 1px solid var(--border); padding: 14px; overflow-y: auto; }
+  .props h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 12px; }
+  .props .empty { color: var(--muted); font-size: 13px; line-height: 1.6; }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 5px; font-weight: 600; }
+  .field input, .field textarea, .field select {
+    width: 100%; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; padding: 7px 9px; font: inherit; font-size: 13px;
+  }
+  .field textarea { min-height: 70px; resize: vertical; font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.5; }
+  .field input:focus, .field textarea:focus { outline: none; border-color: var(--accent); }
+  .field.kv fieldset { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px 2px; margin: 0; }
+  .field.kv legend { font-size: 11px; color: var(--muted); padding: 0 4px; }
+  .subfield { margin-bottom: 10px; }
+  .subfield label { font-size: 10px; }
+
+  .var-bar { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 14px; }
+  .var-chip { font-size: 11px; font-family: ui-monospace, monospace; background: var(--panel-2); border: 1px solid var(--border); border-radius: 5px; padding: 3px 7px; cursor: pointer; }
+  .var-chip:hover { border-color: var(--accent); color: var(--accent); }
+  .var-help { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+
+  .danger-btn { color: var(--danger); border-color: var(--danger); width: 100%; margin-top: 6px; }
+  .danger-btn:hover { background: rgba(248,81,73,.12); }
+
+  /* ---- modal ---- */
+  dialog {
+    background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    border-radius: 10px; padding: 0; width: min(720px, 92vw); max-height: 86vh;
+  }
+  dialog::backdrop { background: rgba(0,0,0,.6); }
+  .modal-head { display: flex; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+  .modal-head h3 { margin: 0; font-size: 15px; }
+  .modal-head .spacer { flex: 1; }
+  .modal-body { padding: 16px 18px; overflow: auto; max-height: 64vh; }
+  .modal-foot { display: flex; gap: 8px; justify-content: flex-end; padding: 12px 18px; border-top: 1px solid var(--border); }
+  #jsonOut { width: 100%; min-height: 320px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; font-family: ui-monospace, monospace; font-size: 12px; padding: 10px; }
+  .issues { margin: 0 0 12px; padding: 0; list-style: none; }
+  .issues li { font-size: 12px; padding: 6px 10px; border-radius: 6px; margin-bottom: 6px; }
+  .issues li.err { background: rgba(248,81,73,.12); border: 1px solid var(--danger); color: #ffb4af; }
+  .issues li.warn { background: rgba(210,153,34,.12); border: 1px solid var(--warn); color: #f0d18a; }
+  .issues li.ok { background: rgba(63,185,80,.12); border: 1px solid var(--accent-2); color: #97f0a6; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Mini-Agent · Flow Builder</h1>
+  <span class="tag">generates state_machine_config.json</span>
+  <div class="spacer"></div>
+  <button id="btnTemplate" class="ghost">New from template</button>
+  <button id="btnImport" class="ghost">Import JSON</button>
+  <button id="btnClear" class="ghost">Clear</button>
+  <button id="btnExport" class="primary">Validate &amp; Export</button>
+</header>
+
+<div class="layout">
+  <!-- palette -->
+  <aside class="palette" id="palette">
+    <h2>States</h2>
+    <!-- items injected by JS -->
+    <p class="palette-note">
+      Drag a state onto the canvas. Connect a state's right port to the next state's left port.
+      The <b>Brain</b> may fan out to multiple tool handlers — the <code>tool_router</code> is
+      generated for you on export. Select a node and press <kbd>Delete</kbd> to remove it.
+    </p>
+  </aside>
+
+  <!-- canvas -->
+  <div class="canvas-wrap">
+    <div id="drawflow"></div>
+    <div class="canvas-hint">Scroll to pan · Ctrl+scroll to zoom · drag ports to connect</div>
+  </div>
+
+  <!-- properties -->
+  <aside class="props" id="props">
+    <h2>Properties</h2>
+    <div class="empty" id="propsEmpty">
+      Select a node to edit its name and arguments.<br /><br />
+      Values like <code>${agent_model}</code> are kept verbatim and resolved by the engine at runtime.
+    </div>
+    <div id="propsForm" style="display:none"></div>
+  </aside>
+</div>
+
+<!-- export modal -->
+<dialog id="exportDialog">
+  <div class="modal-head"><h3>Generated config</h3><div class="spacer"></div></div>
+  <div class="modal-body">
+    <ul class="issues" id="issues"></ul>
+    <textarea id="jsonOut" spellcheck="false" readonly></textarea>
+  </div>
+  <div class="modal-foot">
+    <button id="btnCopy" class="ghost">Copy</button>
+    <button id="btnDownload" class="primary">Download .json</button>
+    <button onclick="document.getElementById('exportDialog').close()">Close</button>
+  </div>
+</dialog>
+
+<!-- import modal -->
+<dialog id="importDialog">
+  <div class="modal-head"><h3>Import state_machine_config.json</h3><div class="spacer"></div></div>
+  <div class="modal-body">
+    <div class="field">
+      <label>Upload a file</label>
+      <input type="file" id="importFile" accept=".json,application/json" />
+    </div>
+    <div class="field">
+      <label>…or paste JSON</label>
+      <textarea id="importText" spellcheck="false" style="width:100%;min-height:240px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;font-family:ui-monospace,monospace;font-size:12px;padding:10px;"></textarea>
+    </div>
+    <ul class="issues" id="importIssues"></ul>
+  </div>
+  <div class="modal-foot">
+    <button id="btnDoImport" class="primary">Load into canvas</button>
+    <button onclick="document.getElementById('importDialog').close()">Cancel</button>
+  </div>
+</dialog>
+
+<script>
+/* =========================================================================
+ * Static catalogue — mirrors the engine's known states / tools.
+ *   states:  src/mini_agent/states/{lifecycle_states,ai/brain_states,ai/tool_states}.py
+ *   tools:   Literal in src/mini_agent/models/brain_output.py (+ fallback_agent override)
+ *   shapes:  src/mini_agent/configs/tour_agency/state_machine_config.json
+ * ========================================================================= */
+
+// Palette: each entry maps to a real CustomStates method.
+const PALETTE = [
+  { func: "start",              label: "Start" },
+  { func: "collect_human_input", label: "Collect Human Input" },
+  { func: "the_planner",        label: "Planner" },
+  { func: "the_brain",          label: "Brain" },
+  { func: "RAG_search",         label: "RAG Search" },
+  { func: "internet_search",    label: "Internet Search" },
+  { func: "response_generator", label: "Response Generator" },
+  { func: "fallback_agent",     label: "Fallback Agent" },
+  { func: "end",                label: "End" },
+];
+
+// Default base state-name per function (kept unique on creation).
+const BASE_NAME = {
+  start: "Start",
+  collect_human_input: "Collect Human Input",
+  the_planner: "Planner",
+  the_brain: "the brain",
+  RAG_search: "RAG Search Handler",
+  internet_search: "Internet Search Handler",
+  response_generator: "Answer Question",
+  fallback_agent: "Fallback Agent Handler",
+  end: "End",
+};
+
+// Editable arg fields per function (order = key order in exported JSON).
+const TOOL_KEYS = ["internet_search", "RAG_search", "collect_human_input", "ready_for_answer", "the_planner", "end"];
+const TONE_KEYS = ["personality", "response_style", "formality", "communication_style"];
+const FIELDS = {
+  start: [
+    { key: "agent_setup_prompt_flag", label: "Setup prompt flag", type: "text" },
+    { key: "agent_setup_prompt", label: "Agent setup prompt", type: "textarea" },
+    { key: "knowledge_base_topics", label: "Knowledge base topics", type: "textarea" },
+  ],
+  collect_human_input: [],
+  the_planner: [
+    { key: "api_key", label: "API key", type: "text" },
+    { key: "model", label: "Model", type: "text" },
+    { key: "knowledge_base_topics", label: "Knowledge base topics", type: "textarea" },
+  ],
+  the_brain: [
+    { key: "agent_api", label: "Agent API key", type: "text" },
+    { key: "agent_model", label: "Agent model", type: "text" },
+    { key: "conversation_language", label: "Conversation language", type: "text" },
+    { key: "analyze_instructions_prompt", label: "Analyze instructions prompt", type: "textarea" },
+    { key: "available_tools", label: "Available tools (descriptions)", type: "kv", keys: TOOL_KEYS },
+    { key: "knowledge_base_topics", label: "Knowledge base topics", type: "textarea" },
+  ],
+  RAG_search: [
+    { key: "query_language", label: "Query language", type: "text" },
+    { key: "retrieval_instructions", label: "Retrieval instructions", type: "textarea" },
+  ],
+  internet_search: [
+    { key: "api_key", label: "API key", type: "text" },
+    { key: "search_depth", label: "Search depth", type: "text" },
+    { key: "query_language", label: "Query language", type: "text" },
+    { key: "search_instructions", label: "Search instructions", type: "textarea" },
+  ],
+  response_generator: [
+    { key: "model", label: "Model", type: "text" },
+    { key: "api_key", label: "API key", type: "text" },
+    { key: "response_language", label: "Response language", type: "text" },
+    { key: "instructions_prompt", label: "Instructions prompt", type: "textarea" },
+    { key: "response_tone", label: "Response tone", type: "kv", keys: TONE_KEYS },
+  ],
+  fallback_agent: [
+    { key: "api_key", label: "API key", type: "text" },
+    { key: "model", label: "Model", type: "text" },
+  ],
+  end: [
+    { key: "status", label: "Status", type: "text" },
+  ],
+};
+
+// Default param values when a node is created (templated keys match the shipped config).
+function emptyKv(keys) { const o = {}; keys.forEach(k => (o[k] = "")); return o; }
+const DEFAULTS = {
+  start: { agent_setup_prompt_flag: "true", agent_setup_prompt: "", knowledge_base_topics: "" },
+  collect_human_input: {},
+  the_planner: { api_key: "${agent_api_key}", model: "${agent_model}", knowledge_base_topics: "${knowledge_base_topics}" },
+  the_brain: {
+    agent_api: "${agent_api_key}", agent_model: "${agent_model}", conversation_language: "English",
+    analyze_instructions_prompt: "", available_tools: emptyKv(TOOL_KEYS), knowledge_base_topics: "${knowledge_base_topics}",
+  },
+  RAG_search: { query_language: "English", retrieval_instructions: "" },
+  internet_search: { api_key: "${tavily_api_key}", search_depth: "basic", query_language: "English", search_instructions: "" },
+  response_generator: { model: "${agent_model}", api_key: "${agent_api_key}", response_language: "English", instructions_prompt: "", response_tone: emptyKv(TONE_KEYS) },
+  fallback_agent: { api_key: "${agent_api_key}", model: "${agent_model}" },
+  end: { status: "successful" },
+};
+
+// Router decision value a handler function answers to. collect_human_input is the
+// catch-all default branch (matches the shipped tour_router).
+const TOOL_FOR_FUNC = {
+  response_generator: "ready_for_answer",
+  RAG_search: "RAG_search",
+  internet_search: "internet_search",
+  the_planner: "the_planner",
+  end: "end",
+  fallback_agent: "fallback_agent",
+  collect_human_input: "collect_human_input",
+};
+
+const KNOWN_VARS = ["${agent_model}", "${agent_api_key}", "${tavily_api_key}", "${agent_decision}", "${knowledge_base_topics}", "${user_query}"];
+
+/* ========================================================================= */
+
+const editor = new Drawflow(document.getElementById("drawflow"));
+editor.reroute = true;
+editor.start();
+
+let selectedId = null;       // currently selected drawflow node id
+let lastFocusedField = null; // for the ${var} insert helper
+
+/* ---------- palette + drag-drop ---------- */
+const paletteEl = document.getElementById("palette");
+PALETTE.forEach(p => {
+  const el = document.createElement("div");
+  el.className = "palette-item";
+  el.draggable = true;
+  el.innerHTML = `<span>${p.label}</span><span class="fn">${p.func}</span>`;
+  el.addEventListener("dragstart", ev => ev.dataTransfer.setData("func", p.func));
+  el.addEventListener("dblclick", () => createNode(p.func, 120, 120));
+  paletteEl.insertBefore(el, paletteEl.querySelector(".palette-note"));
+});
+
+const dfEl = document.getElementById("drawflow");
+dfEl.addEventListener("dragover", ev => ev.preventDefault());
+dfEl.addEventListener("drop", ev => {
+  ev.preventDefault();
+  const func = ev.dataTransfer.getData("func");
+  if (!func) return;
+  const z = editor.zoom;
+  const rect = editor.precanvas.getBoundingClientRect();
+  const x = (ev.clientX - rect.x) / z;
+  const y = (ev.clientY - rect.y) / z;
+  createNode(func, x, y);
+});
+
+/* ---------- node creation ---------- */
+function uniqueName(base) {
+  const taken = new Set(allNodes().map(n => n.data.name));
+  if (!taken.has(base)) return base;
+  let i = 2;
+  while (taken.has(`${base} ${i}`)) i++;
+  return `${base} ${i}`;
+}
+
+function nodeHtml(name, func) {
+  return `<div class="sm-node"><div class="sm-node-title">${escapeHtml(name)}</div><div class="sm-node-func">${func}</div></div>`;
+}
+
+function createNode(func, x, y, params, name) {
+  const p = params ? structuredClone(params) : structuredClone(DEFAULTS[func]);
+  const nm = name || uniqueName(BASE_NAME[func] || func);
+  const id = editor.addNode(func, 1, 1, x, y, "sm-" + func, { func, name: nm, params: p }, nodeHtml(nm, func));
+  return id;
+}
+
+/* ---------- selection + properties ---------- */
+editor.on("nodeSelected", id => { selectedId = id; renderProps(id); });
+editor.on("nodeUnselected", () => { selectedId = null; clearProps(); });
+editor.on("nodeRemoved", id => { if (String(selectedId) === String(id)) { selectedId = null; clearProps(); } });
+
+function clearProps() {
+  document.getElementById("propsEmpty").style.display = "";
+  document.getElementById("propsForm").style.display = "none";
+}
+
+function renderProps(id) {
+  const node = editor.getNodeFromId(id);
+  if (!node) return clearProps();
+  const { func, params } = node.data;
+  const form = document.getElementById("propsForm");
+  document.getElementById("propsEmpty").style.display = "none";
+  form.style.display = "";
+  form.innerHTML = "";
+
+  // --- state name ---
+  form.appendChild(field("State name", inputEl(node.data.name, val => renameNode(id, val), "name")));
+
+  // --- ${var} helper ---
+  const help = document.createElement("p");
+  help.className = "var-help";
+  help.textContent = "Insert into the last focused field:";
+  form.appendChild(help);
+  const bar = document.createElement("div");
+  bar.className = "var-bar";
+  KNOWN_VARS.forEach(v => {
+    const chip = document.createElement("span");
+    chip.className = "var-chip";
+    chip.textContent = v;
+    chip.addEventListener("click", () => insertVar(v));
+    bar.appendChild(chip);
+  });
+  form.appendChild(bar);
+
+  // --- arg fields ---
+  (FIELDS[func] || []).forEach(f => {
+    if (f.type === "kv") {
+      form.appendChild(kvField(f, params[f.key] || (params[f.key] = emptyKv(f.keys)), () => persist(id)));
+    } else {
+      const el = f.type === "textarea"
+        ? textareaEl(params[f.key] ?? "", val => { params[f.key] = val; persist(id); })
+        : inputEl(params[f.key] ?? "", val => { params[f.key] = val; persist(id); });
+      form.appendChild(field(f.label, el));
+    }
+  });
+
+  if ((FIELDS[func] || []).length === 0) {
+    const note = document.createElement("p");
+    note.className = "var-help";
+    note.textContent = "This state takes no arguments.";
+    form.appendChild(note);
+  }
+
+  // --- delete ---
+  const del = document.createElement("button");
+  del.className = "danger-btn";
+  del.textContent = "Delete node";
+  del.addEventListener("click", () => editor.removeNodeId("node-" + id));
+  form.appendChild(del);
+}
+
+function field(label, control) {
+  const wrap = document.createElement("div");
+  wrap.className = "field";
+  const lab = document.createElement("label");
+  lab.textContent = label;
+  wrap.append(lab, control);
+  return wrap;
+}
+function trackFocus(el) {
+  el.addEventListener("focus", () => (lastFocusedField = el));
+  return el;
+}
+function inputEl(value, onChange, kind) {
+  const el = document.createElement("input");
+  el.type = "text";
+  el.value = value;
+  el.addEventListener("input", () => onChange(el.value));
+  if (kind !== "name") trackFocus(el);
+  return el;
+}
+function textareaEl(value, onChange) {
+  const el = document.createElement("textarea");
+  el.value = value;
+  el.addEventListener("input", () => onChange(el.value));
+  return trackFocus(el);
+}
+function kvField(spec, obj, onChange) {
+  const wrap = document.createElement("div");
+  wrap.className = "field kv";
+  const fs = document.createElement("fieldset");
+  const leg = document.createElement("legend");
+  leg.textContent = spec.label;
+  fs.appendChild(leg);
+  spec.keys.forEach(k => {
+    const sf = document.createElement("div");
+    sf.className = "subfield";
+    const lab = document.createElement("label");
+    lab.textContent = k;
+    const ta = document.createElement("textarea");
+    ta.style.minHeight = "44px";
+    ta.value = obj[k] ?? "";
+    ta.addEventListener("input", () => { obj[k] = ta.value; onChange(); });
+    trackFocus(ta);
+    sf.append(lab, ta);
+    fs.appendChild(sf);
+  });
+  wrap.appendChild(fs);
+  return wrap;
+}
+
+function insertVar(v) {
+  const el = lastFocusedField;
+  if (!el) { alert("Click into a field first, then insert a variable."); return; }
+  const s = el.selectionStart ?? el.value.length;
+  const e = el.selectionEnd ?? el.value.length;
+  el.value = el.value.slice(0, s) + v + el.value.slice(e);
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  el.focus();
+  el.selectionStart = el.selectionEnd = s + v.length;
+}
+
+function renameNode(id, value) {
+  const node = editor.getNodeFromId(id);
+  node.data.name = value;
+  persist(id);
+  const titleEl = document.querySelector(`#node-${id} .sm-node-title`);
+  if (titleEl) titleEl.textContent = value;
+}
+
+function persist(id) {
+  const node = editor.getNodeFromId(id);
+  editor.updateNodeDataFromId(id, node.data);
+}
+
+/* ---------- helpers over the live graph ---------- */
+function graphData() { return editor.export().drawflow.Home.data; }
+function allNodes() { return Object.values(graphData()); }
+function outConns(node) { return ((node.outputs.output_1 || {}).connections || []).map(c => String(c.node)); }
+
+/* =========================================================================
+ * EXPORT — walk the graph into a { stateMachine: {...} } object.
+ * ========================================================================= */
+function argsFor(func, params) {
+  if (func === "collect_human_input") return [];
+  if (func === "end") return [params.status ?? "successful"];
+  const obj = {};
+  (FIELDS[func] || []).forEach(f => {
+    obj[f.key] = f.type === "kv" ? { ...(params[f.key] || emptyKv(f.keys)) } : (params[f.key] ?? "");
+  });
+  return [obj];
+}
+
+function buildConfig() {
+  const data = graphData();
+  const errors = [], warnings = [];
+  const byId = {};
+  for (const id in data) {
+    const n = data[id];
+    byId[id] = { id, func: n.data.func, name: n.data.name, params: n.data.params, outs: outConns(n) };
+  }
+  const nodes = Object.values(byId);
+
+  // name checks
+  const names = nodes.map(n => n.name);
+  const dupes = names.filter((n, i) => names.indexOf(n) !== i);
+  [...new Set(dupes)].forEach(d => errors.push(`Duplicate state name: "${d}". State names must be unique.`));
+
+  const starts = nodes.filter(n => n.func === "start");
+  if (starts.length === 0) errors.push('No "Start" state — add a Start node.');
+  if (starts.length > 1) errors.push("Multiple Start states — there must be exactly one.");
+  if (starts.length === 1 && starts[0].name !== "Start")
+    warnings.push(`Start node is named "${starts[0].name}"; the engine looks for a state literally named "Start".`);
+
+  const sm = {};
+  nodes.forEach(node => {
+    const state = { function: node.func, args: argsFor(node.func, node.params) };
+    if (node.func === "end") {
+      state.nextState = "EndFinal";
+    } else if (node.func === "the_brain") {
+      const routerName = uniqueKey("tool_router", sm, byId);
+      state.nextState = routerName;
+      sm[routerName] = buildRouter(node, byId, errors);
+    } else {
+      if (node.outs.length === 0) errors.push(`"${node.name}" has no outgoing connection.`);
+      else if (node.outs.length > 1) errors.push(`"${node.name}" has ${node.outs.length} outgoing connections — only the Brain may branch.`);
+      else state.nextState = byId[node.outs[0]].name;
+    }
+    sm[node.name] = state;
+  });
+
+  // every target exists
+  const valid = new Set(Object.keys(sm)).add("EndFinal");
+  for (const name in sm) {
+    targetsOf(sm[name].nextState).forEach(t => {
+      if (!valid.has(t)) errors.push(`"${name}" transitions to unknown state "${t}".`);
+    });
+  }
+
+  return { config: { stateMachine: sm }, errors, warnings };
+}
+
+function buildRouter(brain, byId, errors) {
+  const branches = [];
+  let defaultTarget = null;
+  if (brain.outs.length === 0) errors.push(`Brain "${brain.name}" is not connected to any tool handler.`);
+  brain.outs.forEach(tid => {
+    const t = byId[tid];
+    const tool = TOOL_FOR_FUNC[t.func];
+    if (!tool) { errors.push(`Brain "${brain.name}" connects to "${t.name}" which is not a valid tool handler.`); return; }
+    if (t.func === "collect_human_input") { defaultTarget = t.name; return; } // becomes the default branch
+    branches.push({
+      conditionFunction: "check_global_variable",
+      args: [{ read_agent_decision: "${agent_decision}", tool_to_use: tool }],
+      nextState: t.name,
+    });
+  });
+  if (!defaultTarget) {
+    errors.push(`Brain "${brain.name}" needs a Collect Human Input handler (used as the default route).`);
+    defaultTarget = branches.length ? branches[0].nextState : "EndFinal";
+  }
+  branches.push({ conditionFunction: true, args: [], nextState: defaultTarget });
+  return { function: "condition_check", args: [], nextState: branches };
+}
+
+function targetsOf(nextState) {
+  if (typeof nextState === "string") return [nextState];
+  return (nextState || []).map(b => b.nextState);
+}
+function uniqueKey(base, sm, byId) {
+  const used = new Set([...Object.keys(sm), ...Object.values(byId).map(n => n.name)]);
+  if (!used.has(base)) return base;
+  let i = 2;
+  while (used.has(`${base} ${i}`)) i++;
+  return `${base} ${i}`;
+}
+
+/* =========================================================================
+ * IMPORT — rebuild the canvas from a config (collapsing tool_router states).
+ * ========================================================================= */
+function paramsFromArgs(func, args) {
+  if (func === "end") return { status: (args && args[0]) ?? "successful" };
+  const obj = (args && args[0]) || {};
+  const p = {};
+  (FIELDS[func] || []).forEach(f => {
+    if (f.type === "kv") { p[f.key] = {}; f.keys.forEach(k => (p[f.key][k] = (obj[f.key] || {})[k] ?? "")); }
+    else p[f.key] = obj[f.key] ?? "";
+  });
+  return p;
+}
+
+function importConfig(cfg) {
+  const sm = cfg.stateMachine;
+  if (!sm) throw new Error('JSON has no "stateMachine" key.');
+
+  // collect routers: routerName -> {map: {tool->target}, def}
+  const routers = {};
+  for (const name in sm) {
+    if (sm[name].function === "condition_check") {
+      const map = {}; let def = null;
+      (sm[name].nextState || []).forEach(b => {
+        if (typeof b.conditionFunction === "boolean") def = b.nextState;
+        else map[(b.args[0] || {}).tool_to_use] = b.nextState;
+      });
+      routers[name] = { map, def };
+    }
+  }
+  const routerTargets = r => [...new Set([...Object.values(r.map), r.def].filter(Boolean))];
+
+  // visible nodes = everything except routers
+  const visible = Object.keys(sm).filter(n => sm[n].function !== "condition_check");
+
+  // adjacency (router-collapsed) for layout + connections
+  const edges = [];
+  visible.forEach(name => {
+    const st = sm[name];
+    if (st.function === "end") return;
+    const ns = st.nextState;
+    if (typeof ns !== "string") return; // visible states always have a string nextState
+    if (routers[ns]) routerTargets(routers[ns]).forEach(t => edges.push([name, t]));
+    else if (ns !== "EndFinal") edges.push([name, ns]);
+  });
+
+  // BFS depth from Start for a simple layered layout
+  const adj = {}; visible.forEach(n => (adj[n] = []));
+  edges.forEach(([a, b]) => { if (adj[a] && visible.includes(b)) adj[a].push(b); });
+  const depth = {}; const start = sm.Start ? "Start" : visible[0];
+  const queue = [[start, 0]]; depth[start] = 0;
+  while (queue.length) {
+    const [n, d] = queue.shift();
+    (adj[n] || []).forEach(m => { if (depth[m] === undefined) { depth[m] = d + 1; queue.push([m, d + 1]); } });
+  }
+  let maxD = 0; visible.forEach(n => { if (depth[n] === undefined) depth[n] = ++maxD; maxD = Math.max(maxD, depth[n]); });
+  const rowCount = {};
+  const pos = {};
+  visible.forEach(n => {
+    const d = depth[n]; rowCount[d] = (rowCount[d] || 0);
+    pos[n] = { x: 60 + d * 280, y: 60 + rowCount[d] * 130 };
+    rowCount[d]++;
+  });
+
+  // create nodes
+  editor.clear();
+  const nameToId = {};
+  visible.forEach(name => {
+    const func = sm[name].function;
+    const params = paramsFromArgs(func, sm[name].args);
+    const id = createNode(func, pos[name].x, pos[name].y, params, name);
+    nameToId[name] = id;
+  });
+
+  // connect
+  edges.forEach(([a, b]) => {
+    if (nameToId[a] !== undefined && nameToId[b] !== undefined)
+      editor.addConnection(nameToId[a], nameToId[b], "output_1", "input_1");
+  });
+}
+
+/* =========================================================================
+ * UI wiring
+ * ========================================================================= */
+const exportDialog = document.getElementById("exportDialog");
+document.getElementById("btnExport").addEventListener("click", () => {
+  const { config, errors, warnings } = buildConfig();
+  const issues = document.getElementById("issues");
+  issues.innerHTML = "";
+  errors.forEach(e => issues.appendChild(issueLi("err", "✕ " + e)));
+  warnings.forEach(w => issues.appendChild(issueLi("warn", "▲ " + w)));
+  if (!errors.length && !warnings.length) issues.appendChild(issueLi("ok", "✓ Graph is valid — passes engine integrity checks."));
+  document.getElementById("jsonOut").value = JSON.stringify(config, null, 4);
+  exportDialog.showModal();
+});
+function issueLi(cls, text) { const li = document.createElement("li"); li.className = cls; li.textContent = text; return li; }
+
+document.getElementById("btnDownload").addEventListener("click", () => {
+  const blob = new Blob([document.getElementById("jsonOut").value], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "state_machine_config.json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+document.getElementById("btnCopy").addEventListener("click", () => {
+  navigator.clipboard.writeText(document.getElementById("jsonOut").value);
+});
+
+const importDialog = document.getElementById("importDialog");
+document.getElementById("btnImport").addEventListener("click", () => {
+  document.getElementById("importIssues").innerHTML = "";
+  importDialog.showModal();
+});
+document.getElementById("importFile").addEventListener("change", ev => {
+  const file = ev.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => (document.getElementById("importText").value = reader.result);
+  reader.readAsText(file);
+});
+document.getElementById("btnDoImport").addEventListener("click", () => {
+  const issues = document.getElementById("importIssues");
+  issues.innerHTML = "";
+  try {
+    const cfg = JSON.parse(document.getElementById("importText").value);
+    importConfig(cfg);
+    importDialog.close();
+    clearProps();
+  } catch (e) {
+    issues.appendChild(issueLi("err", "✕ " + e.message));
+  }
+});
+
+document.getElementById("btnClear").addEventListener("click", () => {
+  if (confirm("Clear the whole canvas?")) { editor.clear(); clearProps(); }
+});
+document.getElementById("btnTemplate").addEventListener("click", () => {
+  if (allNodes().length && !confirm("Replace the current canvas with a starter template?")) return;
+  importConfig(STARTER_TEMPLATE);
+  clearProps();
+});
+
+function escapeHtml(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+/* A minimal but complete skeleton (same topology as the shipped configs). */
+const STARTER_TEMPLATE = {
+  stateMachine: {
+    "Start": { function: "start", args: [{ agent_setup_prompt_flag: "true", agent_setup_prompt: "", knowledge_base_topics: "" }], nextState: "human_input" },
+    "human_input": { function: "collect_human_input", args: [], nextState: "Planner" },
+    "Planner": { function: "the_planner", args: [{ api_key: "${agent_api_key}", model: "${agent_model}", knowledge_base_topics: "${knowledge_base_topics}" }], nextState: "the brain" },
+    "the brain": { function: "the_brain", args: [{ agent_api: "${agent_api_key}", agent_model: "${agent_model}", conversation_language: "English", analyze_instructions_prompt: "", available_tools: emptyKv(TOOL_KEYS), knowledge_base_topics: "${knowledge_base_topics}" }], nextState: "tool_router" },
+    "tool_router": {
+      function: "condition_check", args: [], nextState: [
+        { conditionFunction: "check_global_variable", args: [{ read_agent_decision: "${agent_decision}", tool_to_use: "ready_for_answer" }], nextState: "Answer Question" },
+        { conditionFunction: "check_global_variable", args: [{ read_agent_decision: "${agent_decision}", tool_to_use: "internet_search" }], nextState: "Internet Search Handler" },
+        { conditionFunction: "check_global_variable", args: [{ read_agent_decision: "${agent_decision}", tool_to_use: "RAG_search" }], nextState: "RAG Search Handler" },
+        { conditionFunction: "check_global_variable", args: [{ read_agent_decision: "${agent_decision}", tool_to_use: "the_planner" }], nextState: "Replanner Handler" },
+        { conditionFunction: "check_global_variable", args: [{ read_agent_decision: "${agent_decision}", tool_to_use: "end" }], nextState: "End" },
+        { conditionFunction: "check_global_variable", args: [{ read_agent_decision: "${agent_decision}", tool_to_use: "fallback_agent" }], nextState: "Fallback Agent Handler" },
+        { conditionFunction: true, args: [], nextState: "Collect More Information Handler" },
+      ],
+    },
+    "Answer Question": { function: "response_generator", args: [{ model: "${agent_model}", api_key: "${agent_api_key}", response_language: "English", instructions_prompt: "", response_tone: emptyKv(TONE_KEYS) }], nextState: "the brain" },
+    "RAG Search Handler": { function: "RAG_search", args: [{ query_language: "English", retrieval_instructions: "" }], nextState: "the brain" },
+    "Internet Search Handler": { function: "internet_search", args: [{ api_key: "${tavily_api_key}", search_depth: "basic", query_language: "English", search_instructions: "" }], nextState: "the brain" },
+    "Replanner Handler": { function: "the_planner", args: [{ api_key: "${agent_api_key}", model: "${agent_model}", knowledge_base_topics: "${knowledge_base_topics}" }], nextState: "the brain" },
+    "Fallback Agent Handler": { function: "fallback_agent", args: [{ api_key: "${agent_api_key}", model: "${agent_model}" }], nextState: "Collect More Information Handler" },
+    "Collect More Information Handler": { function: "collect_human_input", args: [], nextState: "the brain" },
+    "End": { function: "end", args: ["successful"], nextState: "EndFinal" },
+  },
+};
+
+// Start with the template so the canvas isn't empty on first load.
+importConfig(STARTER_TEMPLATE);
+</script>
+</body>
+</html>

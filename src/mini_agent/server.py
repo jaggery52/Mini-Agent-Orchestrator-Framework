@@ -4,21 +4,26 @@ import pathlib
 import shutil
 import tempfile
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, RedirectResponse
+from pydantic import BaseModel
 
+from mini_agent import db
 from mini_agent.engine.state_machine import StateMachine
 from mini_agent.engine.state_memory import StateMemory
 from mini_agent.session import SessionContext, set_session
-from mini_agent.settings import CHROMA_DIR, SERVER_ACCESS_TOKEN
+from mini_agent.settings import CHROMA_DIR
 from mini_agent.states.ai.search.rag_search import RagSearch
 
 # Usecases are the sub-directories under configs/ (each holds a state_machine_config.json).
 CONFIGS_DIR = pathlib.Path(__file__).resolve().parent / "configs"
 
-# Self-contained browser UI, served at /mini-agent-ui. parents[2] is the repo root (/app
-# in the image), matching PROJECT_ROOT in settings.py.
-WEB_CLIENT_HTML = pathlib.Path(__file__).resolve().parents[2] / "clients" / "web" / "index.html"
+# Self-contained browser UI pages. parents[2] is the repo root (/app in the image),
+# matching PROJECT_ROOT in settings.py.
+WEB_DIR = pathlib.Path(__file__).resolve().parents[2] / "clients" / "web"
+WEB_CLIENT_HTML = WEB_DIR / "index.html"
+LOGIN_HTML = WEB_DIR / "login.html"
+CREATE_ACCOUNT_HTML = WEB_DIR / "create-account.html"
 
 # Upper bound on the combined size of a session's uploaded KB docs. Keeps per-session
 # indexing predictable on a low-tier container (see the deployment roadmap in CLAUDE.md).
@@ -38,13 +43,17 @@ def _known_usecases() -> set:
     if not CONFIGS_DIR.exists():
         return set()
     return {
-        path.name
-        for path in CONFIGS_DIR.iterdir()
-        if path.is_dir() and (path / "state_machine_config.json").exists()
+        path.name for path in CONFIGS_DIR.iterdir() if path.is_dir() and (path / "state_machine_config.json").exists()
     }
 
 
 app = FastAPI(title="mini-agent WebSocket Server")
+
+
+@app.on_event("startup")
+def _startup() -> None:
+    """Create the user-account DB/schema once when the app boots."""
+    db.init_db()
 
 
 @app.get("/health")
@@ -52,9 +61,74 @@ async def health():
     return {"status": "ok"}
 
 
+@app.get("/")
+async def root():
+    return RedirectResponse(url="/login")
+
+
+@app.get("/login")
+async def login_page():
+    return FileResponse(LOGIN_HTML, media_type="text/html")
+
+
+@app.get("/create-account")
+async def create_account_page():
+    return FileResponse(CREATE_ACCOUNT_HTML, media_type="text/html")
+
+
 @app.get("/mini-agent-ui")
 async def web_client():
     return FileResponse(WEB_CLIENT_HTML, media_type="text/html")
+
+
+# ── User accounts (signup / login / per-user access token) ─────────────────────
+
+
+class RegisterRequest(BaseModel):
+    name: str
+    email: str
+    password: str
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class TokenRequest(BaseModel):
+    token: str
+
+
+@app.post("/api/register", status_code=201)
+async def register(body: RegisterRequest):
+    name = body.name.strip()
+    email = body.email.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required.")
+    if "@" not in email:
+        raise HTTPException(status_code=400, detail="A valid email is required.")
+    if len(body.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters.")
+    try:
+        return db.create_user(name, email, body.password)
+    except db.DuplicateEmailError:
+        raise HTTPException(status_code=409, detail="An account with this email already exists.")
+
+
+@app.post("/api/login")
+async def login(body: LoginRequest):
+    user = db.verify_login(body.email, body.password)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+    return user
+
+
+@app.post("/api/token/regenerate")
+async def regenerate_token(body: TokenRequest):
+    user = db.get_user_by_token(body.token)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Invalid token.")
+    return {"token": db.regenerate_token(user["id"])}
 
 
 async def _authenticate(websocket: WebSocket, session: SessionContext) -> bool:
@@ -72,11 +146,13 @@ async def _authenticate(websocket: WebSocket, session: SessionContext) -> bool:
         await websocket.close(code=4001, reason="Missing init handshake")
         return False
 
-    if not SERVER_ACCESS_TOKEN or message.get("token") != SERVER_ACCESS_TOKEN:
+    user = db.get_user_by_token(str(message.get("token", "")))
+    if user is None:
         logging.warning(f"[SERVER] Rejected connection — invalid token (session {session.session_id})")
         await websocket.send_json({"type": "error", "content": "Authentication failed."})
         await websocket.close(code=4001, reason="Invalid token")
         return False
+    session.user_email = user["email"]
 
     missing = [field for field in REQUIRED_INIT_FIELDS if not str(message.get(field, "")).strip()]
     if missing:
@@ -122,10 +198,12 @@ async def _receive_documents(websocket: WebSocket, session: SessionContext) -> b
 
     total_bytes = sum(len(str(file.get("content", "")).encode("utf-8")) for file in files)
     if total_bytes > MAX_DOCS_BYTES:
-        await websocket.send_json({
-            "type": "error",
-            "content": f"Uploaded documents exceed the {MAX_DOCS_BYTES // (1024 * 1024)} MB limit.",
-        })
+        await websocket.send_json(
+            {
+                "type": "error",
+                "content": f"Uploaded documents exceed the {MAX_DOCS_BYTES // (1024 * 1024)} MB limit.",
+            }
+        )
         await websocket.close(code=4001, reason="Documents too large")
         return False
 
@@ -192,17 +270,20 @@ async def websocket_endpoint(websocket: WebSocket):
         return
 
     logging.info(
-        f"[SERVER] Client authenticated. Session: {session.session_id} | usecase: {session.usecase}"
+        f"[SERVER] Client authenticated. Session: {session.session_id} | "
+        f"user: {session.user_email} | usecase: {session.usecase}"
     )
 
     if not await _receive_documents(websocket, session):
         return
 
-    await websocket.send_json({
-        "type": "acknowledgement",
-        "session_id": session.session_id,
-        "content": "What would you like to do?",
-    })
+    await websocket.send_json(
+        {
+            "type": "acknowledgement",
+            "session_id": session.session_id,
+            "content": "What would you like to do?",
+        }
+    )
 
     async def run_machine():
         try:
