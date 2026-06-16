@@ -15,9 +15,13 @@ COPY pyproject.toml README.md ./
 COPY src ./src
 RUN pip install --no-cache-dir -e .
 
-# Self-contained browser UI, served by the app at /mini-agent-ui (see server.py).
-# Only clients/web is needed; the CLI client under clients/ is not.
+# Self-contained browser UI (login / create-account / index), served by the app
+# (see server.py). Only clients/web is needed; the CLI client under clients/ is not.
 COPY clients/web ./clients/web
+
+# User-account DB lives here (USERS_DB_PATH=/app/data/users.db); mount a volume so
+# accounts persist across restarts. Created on demand, but make the dir up front.
+RUN mkdir -p /app/data
 
 EXPOSE 8000
 

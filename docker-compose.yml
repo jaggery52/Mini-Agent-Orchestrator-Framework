@@ -1,9 +1,10 @@
 # There is no baked KB and no build secret — each session builds its own KB from the
 # client's uploaded docs at connect time. The running containers hold no LLM/search keys;
-# clients supply those in the WebSocket `init` handshake. The only server secret is
-# SERVER_ACCESS_TOKEN (auth gate).
+# clients supply those in the WebSocket `init` handshake. Auth is per-user now: accounts
+# live in a shared SQLite file (./data/users.db, mounted into both replicas) and the
+# WebSocket is gated by each user's personal access token — there is no SERVER_ACCESS_TOKEN.
 #
-# Build and run (with SERVER_ACCESS_TOKEN set in .env or the shell):
+# Build and run:
 #   docker compose build
 #   docker compose up -d
 
@@ -14,11 +15,12 @@ services:
       dockerfile: deploy/Dockerfile
     container_name: mini-agent-1
     environment:
-      - SERVER_ACCESS_TOKEN=${SERVER_ACCESS_TOKEN}
+      - USERS_DB_PATH=/app/data/users.db
       - LOG_FILE=logs/mini-agent-1.log
       - TZ=Europe/Berlin
     volumes:
       - ./logs:/app/logs
+      - ./data:/app/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
@@ -33,11 +35,12 @@ services:
       dockerfile: deploy/Dockerfile
     container_name: mini-agent-2
     environment:
-      - SERVER_ACCESS_TOKEN=${SERVER_ACCESS_TOKEN}
+      - USERS_DB_PATH=/app/data/users.db
       - LOG_FILE=logs/mini-agent-2.log
       - TZ=Europe/Berlin
     volumes:
       - ./logs:/app/logs
+      - ./data:/app/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
