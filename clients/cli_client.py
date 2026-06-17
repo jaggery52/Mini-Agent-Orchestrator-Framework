@@ -99,8 +99,8 @@ def main():
     )
     # The client is the trusted holder of the keys. Defaults come from the client's
     # own environment so secrets aren't passed on the command line.
-    parser.add_argument("--token", default=os.getenv("SERVER_ACCESS_TOKEN", ""),
-                        help="Server access token (env: SERVER_ACCESS_TOKEN)")
+    parser.add_argument("--token", default=os.getenv("USER_ACCESS_TOKEN") or os.getenv("SERVER_ACCESS_TOKEN", ""),
+                        help="Per-user access token (env: USER_ACCESS_TOKEN)")
     parser.add_argument("--usecase", default=os.getenv("USECASE", "tour_agency"),
                         help="Usecase to run (env: USECASE, default: tour_agency)")
     parser.add_argument("--collection", default=os.getenv("COLLECTION_NAME", ""),
@@ -118,7 +118,7 @@ def main():
     args = parser.parse_args()
 
     missing = [name for name, value in (
-        ("--token / SERVER_ACCESS_TOKEN", args.token),
+        ("--token / USER_ACCESS_TOKEN", args.token),
         ("--openai-key / OPENAI_API_KEY", args.openai_key),
     ) if not value.strip()]
     if missing:
