@@ -88,3 +88,24 @@ clients/         # web UI + CLI client
 deploy/          # Dockerfile + nginx config
 .github/         # CI and Docker-publish/deploy workflows
 ```
+
+## Run the pipeline on your own fork
+
+The workflows ship as YAML but carry **no secrets** — a fork can't deploy to the infrastructure automatically. To run the deploy pipeline yourself, plug in your own accounts:
+
+1. **Docker Hub** — create an account and a [personal access token](https://hub.docker.com/settings/security) (Account Settings → Security). The image repo name is hardcoded as `mini-agent-framework` (pushed as `<your-username>/mini-agent-framework`); keep it or change it in the workflow.
+2. **Azure Container App** — create a [Container App](https://portal.azure.com/) and its resource group, configured with:
+   - **External ingress on port 8000** (WebSocket `/ws`, health `/health`).
+   - Env `USERS_DB_PATH=/app/data/users.db`.
+   - Your Docker Hub **pull** credentials on registry `docker.io` (so the private image pulls).
+3. **Persistent storage (required)** — the container FS is ephemeral and the app scales to zero, so user accounts vanish on cold start unless the SQLite DB is persisted. Create an **Azure Files** share (in a Storage Account), [link it to the Container App environment](https://learn.microsoft.com/azure/container-apps/storage-mounts), and **mount it at `/app/data`** (matching `USERS_DB_PATH`).
+4. **Deploy service principal:**
+   ```bash
+   az ad sp create-for-rbac --name mini-agent-deployer \
+     --role contributor --scopes /subscriptions/<sub-id>/resourceGroups/<rg> --sdk-auth
+   ```
+5. **GitHub secrets** — in your fork: Settings → Secrets and variables → Actions → add
+   `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`, and `AZURE_CREDENTIALS` (the full `--sdk-auth` JSON).
+6. **Names** — set `AZURE_RESOURCE_GROUP` and `AZURE_CONTAINERAPP_NAME` in [docker-publish.yml](.github/workflows/docker-publish.yml) to match your Azure resources (the workflow references these exact values when it rolls the app).
+
+Push to `main` (or tag `v*`) and Actions builds → pushes to your Docker Hub → rolls your Azure Container App to the new image. `ci.yml` (lint + tests) needs no setup — it runs on any fork as-is.
