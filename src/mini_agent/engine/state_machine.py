@@ -30,9 +30,6 @@ class StateMachine:
         self.conditions = CustomConditions()
         self.states = CustomStates()
 
-        # Seed per-session memory from the WS handshake (set on the session), NOT env.
-        # The KB (collection + docs) is built once at session start and held on the
-        # session (see server._receive_documents) — no KB vars are seeded here.
         session = get_session()
         StateMemory.setVariable("agent_model",   session.agent_model)
         StateMemory.setVariable("agent_api_key", session.openai_api_key)

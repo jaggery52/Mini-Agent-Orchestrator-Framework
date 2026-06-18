@@ -1,9 +1,3 @@
-# There is no baked KB and no build secret — each session builds its own KB from the
-# client's uploaded docs at connect time. The running containers hold no LLM/search keys;
-# clients supply those in the WebSocket `init` handshake. Auth is per-user now: accounts
-# live in a shared SQLite file (./data/users.db, mounted into both replicas) and the
-# WebSocket is gated by each user's personal access token — there is no SERVER_ACCESS_TOKEN.
-#
 # Build and run:
 #   docker compose build
 #   docker compose up -d

@@ -6,16 +6,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Repo root: src/mini_agent/settings.py -> parents[2]
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-# On-disk store for the per-session KB collections (created/deleted at runtime).
 CHROMA_DIR = PROJECT_ROOT / "chroma_db"
-
-# SQLite file for the user-account store (signup/login + per-user access tokens).
-# Lives on a Docker volume so accounts survive restarts. The WebSocket is now gated
-# by these per-user tokens, not a shared secret — there is no SERVER_ACCESS_TOKEN.
-# LLM / search API keys, model names, and KB docs are still supplied by the client
-# per connection in the `init`/`documents` handshake (see server.py).
 USERS_DB = Path(os.getenv("USERS_DB_PATH", PROJECT_ROOT / "data" / "users.db"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 LOG_FILE = os.getenv("LOG_FILE", "logs/agent.log")

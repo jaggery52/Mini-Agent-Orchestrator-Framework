@@ -25,8 +25,6 @@ class RagSearch:
         self._openai_client = None
 
     def initialise(self) -> None:
-        """Create the collection and index the docs once. Built per session from the
-        client's uploaded docs (a fresh collection), then reused for every query."""
         try:
             import chromadb
             from openai import OpenAI

@@ -7,7 +7,6 @@ from mini_agent.db import database, users
 
 @pytest.fixture
 def db(tmp_path, monkeypatch):
-    """Point the store at a throwaway SQLite file and create the schema."""
     monkeypatch.setattr(database, "USERS_DB", tmp_path / "users.db")
     database.init_db()
     return database

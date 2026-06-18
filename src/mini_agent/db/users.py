@@ -1,11 +1,3 @@
-"""User-account operations: signup, login, and per-user access tokens.
-
-Passwords are hashed with PBKDF2-HMAC-SHA256 (stdlib ``hashlib``) + a per-user random
-salt — never stored or logged in plaintext. Each user holds exactly one access token
-(``secrets.token_urlsafe``) that gates the WebSocket ``init`` handshake; regenerating
-it overwrites the old one.
-"""
-
 import hashlib
 import hmac
 import secrets
@@ -30,12 +22,10 @@ def _new_token() -> str:
 
 
 def _public(row: sqlite3.Row) -> dict:
-    """Project a DB row to the fields safe to return to the client."""
     return {"name": row["name"], "email": row["email"], "token": row["token"]}
 
 
 def create_user(name: str, email: str, password: str) -> dict:
-    """Insert a new user and issue an access token. Raises ``DuplicateEmailError``."""
     salt = secrets.token_bytes(16)
     record = {
         "name": name.strip(),
@@ -58,7 +48,6 @@ def create_user(name: str, email: str, password: str) -> dict:
 
 
 def verify_login(email: str, password: str) -> dict | None:
-    """Return the user (incl. token) if the password matches, else ``None``."""
     with get_connection() as conn:
         row = conn.execute("SELECT * FROM users WHERE email = ? COLLATE NOCASE", (email.strip(),)).fetchone()
     if row is None:
@@ -70,7 +59,6 @@ def verify_login(email: str, password: str) -> dict | None:
 
 
 def get_user_by_token(token: str) -> dict | None:
-    """Look up a user by access token — the WebSocket auth path. Returns id + fields."""
     if not token:
         return None
     with get_connection() as conn:
@@ -81,7 +69,6 @@ def get_user_by_token(token: str) -> dict | None:
 
 
 def regenerate_token(user_id: int) -> str:
-    """Issue a fresh token for the user, overwriting the old one. Returns the new token."""
     token = _new_token()
     with get_connection() as conn:
         conn.execute("UPDATE users SET token = ? WHERE id = ?", (token, user_id))

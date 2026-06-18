@@ -10,7 +10,6 @@ __pycache__/
 build/
 dist/
 clients/
-# but the browser UI is served by the app (see deploy/Dockerfile COPY clients/web)
 !clients/web
 examples/
 tests/

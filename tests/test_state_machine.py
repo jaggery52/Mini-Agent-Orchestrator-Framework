@@ -1,19 +1,10 @@
-"""Graph-integrity checks for every shipped usecase state-machine config.
-
-These run without any network or LLM calls: they only validate that the JSON
-graph is internally consistent and that every referenced state function /
-condition function actually resolves on the engine's handler classes.
-"""
-
 from mini_agent.states.custom_conditions import CustomConditions
 from mini_agent.states.custom_states import CustomStates
 
-# Terminal sentinel: the run loop halts when it reaches this; it is not a state.
 TERMINAL_STATE = "EndFinal"
 
 
 def _next_state_targets(next_state_config) -> list[str]:
-    """Return every state name a transition can route to."""
     if isinstance(next_state_config, str):
         return [next_state_config]
     return [transition["nextState"] for transition in next_state_config]
