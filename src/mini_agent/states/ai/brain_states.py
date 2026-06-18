@@ -77,10 +77,6 @@ class BrainStates:
                 current_step,
             )
 
-            # The brain repeated ready_for_answer instead of marking the plan
-            # complete (per Rule 0.5), so its TODO_updates still show the answer
-            # task "in progress". Coerce every planned item to "done" so the
-            # client's plan panel reflects the delivered answer.
             planned_todo = StateMemory._get_memory()["state_memory"]["updated_by_the_planner"]["planned_TODO"]
             brain_output.TODO_updates = [
                 TODOUpdate(

@@ -15,7 +15,6 @@ from mini_agent.session import SessionContext, set_session
 from mini_agent.settings import CHROMA_DIR
 from mini_agent.states.ai.search.rag_search import RagSearch
 
-# Usecases are the sub-directories under configs/ (each holds a state_machine_config.json).
 CONFIGS_DIR = pathlib.Path(__file__).resolve().parent / "configs"
 
 # Self-contained browser UI pages. parents[2] is the repo root (/app in the image),
@@ -26,10 +25,9 @@ LOGIN_HTML = WEB_DIR / "login.html"
 CREATE_ACCOUNT_HTML = WEB_DIR / "create-account.html"
 
 # Upper bound on the combined size of a session's uploaded KB docs. Keeps per-session
-# indexing predictable on a low-tier container (see the deployment roadmap in CLAUDE.md).
 MAX_DOCS_BYTES = 2 * 1024 * 1024
 
-# Fields the client must supply (non-empty) in the `init` handshake.
+# Fields the client must supply (non-empty)
 REQUIRED_INIT_FIELDS = (
     "usecase",
     "collection_name",
@@ -81,7 +79,7 @@ async def web_client():
     return FileResponse(WEB_CLIENT_HTML, media_type="text/html")
 
 
-# ── User accounts (signup / login / per-user access token) ─────────────────────
+# User accounts (signup / login / per-user access token)
 
 
 class RegisterRequest(BaseModel):
@@ -132,9 +130,6 @@ async def regenerate_token(body: TokenRequest):
 
 
 async def _authenticate(websocket: WebSocket, session: SessionContext) -> bool:
-    """Read and validate the first `init` message. Returns True if the session is
-    authorised and configured; otherwise sends an error, closes the socket, and
-    returns False."""
     try:
         message = await websocket.receive_json()
     except Exception:
@@ -176,9 +171,6 @@ async def _authenticate(websocket: WebSocket, session: SessionContext) -> bool:
 
 
 async def _receive_documents(websocket: WebSocket, session: SessionContext) -> bool:
-    """Read the required `documents` message, persist the uploaded .txt files to a
-    per-session temp folder, and build this session's KB collection with the client's
-    own key. Returns True on success; otherwise sends an error, closes, returns False."""
     try:
         message = await websocket.receive_json()
     except Exception:
@@ -244,7 +236,6 @@ async def _receive_documents(websocket: WebSocket, session: SessionContext) -> b
 
 
 def _cleanup_session_kb(session: SessionContext) -> None:
-    """Drop the session's Chroma collection and temp docs folder."""
     session.rag_search = None
     if session.collection_name == session.session_id:
         try:
@@ -317,7 +308,6 @@ def _run_state_machine(session: SessionContext) -> None:
 
 
 def main() -> None:
-    """Console-script / `python -m mini_agent` entry point."""
     import uvicorn
 
     uvicorn.run("mini_agent.server:app", host="0.0.0.0", port=8000)

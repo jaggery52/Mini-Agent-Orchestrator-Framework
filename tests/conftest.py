@@ -18,7 +18,6 @@ def _usecase_names() -> list[str]:
 
 @pytest.fixture(params=_usecase_names())
 def usecase_config(request) -> dict:
-    """The parsed state-machine config for each shipped usecase (parametrized)."""
     config_path = CONFIGS_DIR / request.param / "state_machine_config.json"
     with config_path.open() as config_file:
         return json.load(config_file)["stateMachine"]
