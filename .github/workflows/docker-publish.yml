@@ -40,6 +40,7 @@ jobs:
             type=semver,pattern={{version}}
 
       - name: Build and push image
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -51,8 +52,9 @@ jobs:
           cache-to: type=gha,mode=max
 
       # --- Auto-deploy the freshly pushed image to Azure Container Apps ---
-      # Only on main (not version tags). Rolls the running app to a new revision
-      # that re-pulls :latest from Docker Hub.
+      # Only on main (not version tags). Deploys by immutable digest so the image
+      # reference changes every push, forcing ACA to roll a new revision pinned to
+      # exactly this build (a constant :latest tag would dedupe to no new revision).
       - name: Log in to Azure
         if: github.ref == 'refs/heads/main'
         uses: azure/login@v2
@@ -76,4 +78,4 @@ jobs:
             az containerapp update \
               --name "$AZURE_CONTAINERAPP_NAME" \
               --resource-group "$AZURE_RESOURCE_GROUP" \
-              --image "docker.io/${{ secrets.DOCKERHUB_USERNAME }}/mini-agent-framework:latest"
+              --image "docker.io/${{ secrets.DOCKERHUB_USERNAME }}/mini-agent-framework@${{ steps.build.outputs.digest }}"
