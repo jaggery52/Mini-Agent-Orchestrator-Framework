@@ -1471,7 +1471,10 @@
       message.append(labelNode, bubble);
       chatLog.appendChild(message);
       chatLog.scrollTop = chatLog.scrollHeight;
+      return bubble;
     }
+
+    let streamingBubble = null;
 
     // =========================================================================
     //  SERVER MESSAGE ROUTING
@@ -1527,8 +1530,24 @@
         return;
       }
 
+      if (type === "response_chunk") {
+        if (!streamingBubble) {
+          streamingBubble = appendChatMessage("agent", "Final response", "", "final");
+          setActiveNode("answer");
+          setTicker("Answering…", true);
+          setInputEnabled(false);
+        }
+        streamingBubble.textContent += message.content || "";
+        chatLog.scrollTop = chatLog.scrollHeight;
+        return;
+      }
+
       if (type === "final_response") {
-        appendChatMessage("agent", "Final response", message.content || "", "final");
+        if (streamingBubble) {
+          streamingBubble = null;
+        } else {
+          appendChatMessage("agent", "Final response", message.content || "", "final");
+        }
         setActiveNode("answer");
         setTicker("Answer delivered", true);
         setInputEnabled(false);

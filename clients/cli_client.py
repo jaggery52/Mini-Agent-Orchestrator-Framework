@@ -31,6 +31,7 @@ async def run_session(url: str, init_payload: dict, documents: list) -> None:
             # per-session collection (built at session start, dropped at session end).
             await ws.send(json.dumps({"type": "documents", "files": documents}))
 
+            streaming = False
             async for raw_message in ws:
                 message = json.loads(raw_message)
                 message_type = message.get("type")
@@ -66,8 +67,18 @@ async def run_session(url: str, init_payload: dict, documents: list) -> None:
                     if user_input:
                         await ws.send(json.dumps({"type": "human_input", "content": user_input}))
 
+                elif message_type == "response_chunk":
+                    if not streaming:
+                        print("\nAgent: ", end="", flush=True)
+                        streaming = True
+                    print(message.get("content", ""), end="", flush=True)
+
                 elif message_type == "final_response":
-                    print(f"\nAgent: {message.get('content', '')}\n")
+                    if streaming:
+                        print("\n")
+                        streaming = False
+                    else:
+                        print(f"\nAgent: {message.get('content', '')}\n")
 
                 elif message_type == "session_end":
                     status = message.get("status", "unknown")

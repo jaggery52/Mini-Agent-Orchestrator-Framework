@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Any, Dict
+from typing import Any, Callable, Dict, Optional
 
 
 class ResponseGenerator:
@@ -52,7 +52,12 @@ class ResponseGenerator:
             "tool names, or internal reasoning. Just answer the user clearly and directly."
         )
 
-    def generate(self, state_snapshot: Dict[str, Any], response_instructions: str) -> str:
+    def generate(
+        self,
+        state_snapshot: Dict[str, Any],
+        response_instructions: str,
+        on_delta: Optional[Callable[[str], None]] = None,
+    ) -> str:
         user_query = state_snapshot.get("user_query", "")
         tool_outputs = state_snapshot.get("updated_by_tools", {})
 
@@ -84,27 +89,42 @@ class ResponseGenerator:
                 model=self.model,
                 messages=messages,
                 temperature=0,
+                stream=True,
+                stream_options={"include_usage": True},
             )
 
-            answer = response.choices[0].message.content.strip()
+            chunks = []
+            usage = None
+            for event in response:
+                # The final usage-only chunk carries no choices.
+                if event.usage:
+                    usage = event.usage
+                if event.choices:
+                    delta = event.choices[0].delta.content
+                    if delta:
+                        chunks.append(delta)
+                        if on_delta:
+                            on_delta(delta)
 
-            usage = response.usage
-            cached_tokens = 0
-            if hasattr(usage, "prompt_tokens_details") and usage.prompt_tokens_details:
-                cached_tokens = getattr(usage.prompt_tokens_details, "cached_tokens", 0)
+            answer = "".join(chunks).strip()
 
-            logging.info(
-                f"[ResponseGenerator] Tokens — prompt: {usage.prompt_tokens}, "
-                f"cached: {cached_tokens}, completion: {usage.completion_tokens}"
-            )
+            if usage is not None:
+                cached_tokens = 0
+                if hasattr(usage, "prompt_tokens_details") and usage.prompt_tokens_details:
+                    cached_tokens = getattr(usage.prompt_tokens_details, "cached_tokens", 0)
 
-            from mini_agent.engine.state_memory import StateMemory
-            StateMemory.updateVariable("tokenCount", [{
-                "prompt_tokens": usage.prompt_tokens,
-                "cached_tokens": cached_tokens,
-                "completion_tokens": usage.completion_tokens,
-                "total_tokens": usage.total_tokens,
-            }])
+                logging.info(
+                    f"[ResponseGenerator] Tokens — prompt: {usage.prompt_tokens}, "
+                    f"cached: {cached_tokens}, completion: {usage.completion_tokens}"
+                )
+
+                from mini_agent.engine.state_memory import StateMemory
+                StateMemory.updateVariable("tokenCount", [{
+                    "prompt_tokens": usage.prompt_tokens,
+                    "cached_tokens": cached_tokens,
+                    "completion_tokens": usage.completion_tokens,
+                    "total_tokens": usage.total_tokens,
+                }])
 
             return answer
 

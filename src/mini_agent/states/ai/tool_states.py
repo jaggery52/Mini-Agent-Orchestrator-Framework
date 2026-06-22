@@ -142,12 +142,17 @@ class ToolStates:
             response_tone=response_tone,
         )
 
+        def _on_delta(text: str) -> None:
+            if session:
+                session.send_sync({"type": "response_chunk", "content": text})
+
         answer = generator.generate(
             state_snapshot=brain_context,
             response_instructions=response_instructions,
+            on_delta=_on_delta,
         )
 
-        session.send_sync({"type": "final_response", "content": answer})
+        session.send_sync({"type": "final_response", "content": answer, "streamed": True})
         StateMemory.setVariable("answer_delivered", True)
 
         StateMemory.updateToolOutput("ready_for_answer", answer)
