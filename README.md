@@ -6,6 +6,8 @@ The agent takes a high-level user goal, breaks it into a structured plan, execut
 
 The core design idea: **the engine is code, the agent's behaviour is configuration.** A generic state-machine engine knows nothing about planning or searching — every state, prompt, tool, and transition lives in a per-usecase JSON file. Tool routing is driven by **structured LLM output** (Pydantic schemas) rather than native tool-calling, so the entire control flow is explicit, inspectable, and deterministic.
 
+![Mini-Agent demo](media/mini%20agent.gif)
+
 ---
 
 ## What it does

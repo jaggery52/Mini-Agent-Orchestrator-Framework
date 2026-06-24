@@ -1,0 +1,1059 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Agent Flow Builder — State Machine Designer</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --panel: #171a23;
+    --panel-2: #1f2430;
+    --border: #2b313f;
+    --text: #e6e9ef;
+    --muted: #8b93a7;
+    --accent: #5b8cff;
+    --accent-2: #7c5cff;
+    --ai: #7c5cff;
+    --tool: #1fb6a8;
+    --life: #f0a54a;
+    --route: #e0568b;
+    --ok: #34c759;
+    --err: #ff5d5d;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ---------- Top bar ---------- */
+  .topbar {
+    height: 52px;
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 16px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  .topbar .title { font-weight: 600; font-size: 15px; letter-spacing: .2px; }
+  .topbar .title small { color: var(--muted); font-weight: 400; margin-left: 8px; font-size: 12px; }
+  .topbar .spacer { flex: 1; }
+  .btn {
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--text);
+    padding: 7px 14px;
+    border-radius: 7px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background .15s, border-color .15s;
+  }
+  .btn:hover { background: #262c3a; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: #4a7bf0; }
+  .btn.ghost { background: transparent; }
+
+  /* ---------- Layout ---------- */
+  .main { flex: 1 1 auto; display: flex; min-height: 0; }
+
+  /* ---------- Sidebar ---------- */
+  .sidebar {
+    width: 270px;
+    flex: 0 0 auto;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 14px;
+  }
+  .section-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .8px;
+    color: var(--muted);
+    margin: 16px 0 8px;
+  }
+  .section-title:first-child { margin-top: 0; }
+  .palette-group { display: flex; flex-direction: column; gap: 7px; }
+  .chip {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 9px 10px;
+    border-radius: 8px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    cursor: grab;
+    font-size: 13px;
+    user-select: none;
+  }
+  .chip:active { cursor: grabbing; }
+  .chip .dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+  .chip .name { font-weight: 500; }
+  .chip .fn { color: var(--muted); font-size: 11px; margin-left: auto; }
+  .dot.ai { background: var(--ai); }
+  .dot.tool { background: var(--tool); }
+  .dot.lifecycle { background: var(--life); }
+  .dot.routing { background: var(--route); }
+
+  .ref-block { margin-bottom: 10px; }
+  .ref-block summary {
+    cursor: pointer; font-size: 12px; color: var(--text); padding: 4px 0; outline: none;
+  }
+  .ref-list { display: flex; flex-wrap: wrap; gap: 5px; padding: 6px 0 2px; }
+  .ref-tag {
+    font-size: 11px; padding: 2px 7px; border-radius: 5px;
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .ref-tag.var { color: #9fd0ff; }
+  .ref-tag.tool { color: #6fe3d6; }
+  .ref-tag.fn { color: #c9b6ff; }
+
+  /* ---------- Canvas ---------- */
+  .canvas {
+    flex: 1 1 auto;
+    position: relative;
+    overflow: auto;
+    background:
+      radial-gradient(circle, #232838 1px, transparent 1px);
+    background-size: 22px 22px;
+    background-color: var(--bg);
+  }
+  .canvas-content { position: relative; width: 4000px; height: 3000px; }
+  svg.wires { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  svg.wires path.wire { fill: none; stroke: #51607f; stroke-width: 2.2; }
+  svg.wires path.wire.hover { stroke: var(--accent); stroke-width: 3; }
+  svg.wires path.hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; }
+  svg.wires path.temp { stroke: var(--accent); stroke-dasharray: 5 4; stroke-width: 2.2; fill: none; }
+
+  /* ---------- Nodes ---------- */
+  .node {
+    position: absolute;
+    width: 196px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 6px 18px rgba(0,0,0,.35);
+    user-select: none;
+  }
+  .node.selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(91,140,255,.35), 0 6px 18px rgba(0,0,0,.35); }
+  .node-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 10px; cursor: grab;
+    border-bottom: 1px solid var(--border);
+    border-top-left-radius: 10px; border-top-right-radius: 10px;
+  }
+  .node-head .dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+  .node-head .nm { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+  .node-head .del {
+    color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1;
+    padding: 0 2px; border-radius: 4px;
+  }
+  .node-head .del:hover { color: var(--err); background: rgba(255,93,93,.12); }
+  .node-body { padding: 8px 10px 10px; }
+  .node-fn { font-size: 11px; color: var(--muted); font-family: ui-monospace, Menlo, monospace; }
+  .node-meta { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  /* ports */
+  .handle {
+    position: absolute; width: 13px; height: 13px; border-radius: 50%;
+    background: #2a3142; border: 2px solid #5d6a87;
+    cursor: crosshair; z-index: 5;
+  }
+  .handle:hover, .handle.live { background: var(--accent); border-color: var(--accent); }
+  .handle.in { left: 50%; top: -7px; transform: translateX(-50%); }
+  .handle.out { left: 50%; bottom: -7px; transform: translateX(-50%); }
+
+  /* router branch rows */
+  .branch-row {
+    position: relative;
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 10px; font-size: 11px;
+    border-top: 1px solid var(--border);
+  }
+  .branch-row .lbl { font-family: ui-monospace, Menlo, monospace; color: #ffd0e3; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .branch-row.default .lbl { color: var(--muted); font-style: italic; }
+  .branch-row .handle.out { left: auto; right: -7px; bottom: 50%; transform: translateY(50%); }
+
+  /* ---------- Modal ---------- */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.55);
+    display: none; align-items: center; justify-content: center; z-index: 50;
+  }
+  .overlay.show { display: flex; }
+  .modal {
+    width: 560px; max-width: 92vw; max-height: 88vh; overflow-y: auto;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px 20px;
+  }
+  .modal h3 { margin: 0 0 4px; font-size: 16px; }
+  .modal .sub { color: var(--muted); font-size: 12px; margin-bottom: 14px; }
+  .field { margin-bottom: 13px; }
+  .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+  .field input[type=text], .field textarea, .field select {
+    width: 100%; background: var(--panel-2); border: 1px solid var(--border);
+    color: var(--text); border-radius: 7px; padding: 8px 10px; font-size: 13px;
+    font-family: inherit; resize: vertical;
+  }
+  .field textarea { min-height: 70px; line-height: 1.45; }
+  .field textarea.big { min-height: 150px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 6px; }
+
+  .map-editor .map-row, .branch-editor .b-row { display: flex; gap: 7px; margin-bottom: 6px; }
+  .map-editor .map-row input, .branch-editor .b-row input, .branch-editor .b-row select { flex: 1; }
+  .map-editor .map-row .k { flex: 0 0 38%; }
+  .icon-btn {
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--muted);
+    border-radius: 6px; width: 32px; cursor: pointer; font-size: 14px;
+  }
+  .icon-btn:hover { color: var(--err); }
+  .add-link { font-size: 12px; color: var(--accent); cursor: pointer; display: inline-block; margin-top: 2px; }
+  .obj-group { border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+
+  pre.json {
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px; font-family: ui-monospace, Menlo, monospace; font-size: 12px;
+    line-height: 1.5; overflow: auto; max-height: 60vh; white-space: pre; margin: 0;
+  }
+  .validate-list { list-style: none; padding: 0; margin: 0; }
+  .validate-list li { font-size: 13px; padding: 6px 0; display: flex; gap: 8px; align-items: flex-start; }
+  .validate-list li .ic { flex: 0 0 auto; }
+  .validate-list li.ok .ic { color: var(--ok); }
+  .validate-list li.bad .ic { color: var(--err); }
+
+  /* toast */
+  .toast {
+    position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    padding: 10px 16px; border-radius: 8px; font-size: 13px; z-index: 80;
+    opacity: 0; pointer-events: none; transition: opacity .2s;
+  }
+  .toast.show { opacity: 1; }
+  .toast.err { border-color: var(--err); }
+  .toast.ok { border-color: var(--ok); }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="title">Agent Flow Builder <small>state-machine config designer</small></div>
+    <div class="spacer"></div>
+    <button class="btn ghost" id="btn-clear">Reset</button>
+    <button class="btn" id="btn-validate">Validate</button>
+    <button class="btn primary" id="btn-generate">Generate JSON</button>
+  </div>
+
+  <div class="main">
+    <aside class="sidebar">
+      <div class="section-title">AI blocks</div>
+      <div class="palette-group" data-cat="ai"></div>
+
+      <div class="section-title">Tool blocks</div>
+      <div class="palette-group" data-cat="tool"></div>
+
+      <div class="section-title">Lifecycle</div>
+      <div class="palette-group" data-cat="lifecycle"></div>
+
+      <div class="section-title">Routing</div>
+      <div class="palette-group" data-cat="routing"></div>
+
+      <div class="section-title">Reference</div>
+      <details class="ref-block" open>
+        <summary>Variables (<code>&dollar;{…}</code>)</summary>
+        <div class="ref-list" id="ref-vars"></div>
+      </details>
+      <details class="ref-block">
+        <summary>Brain tools (router labels)</summary>
+        <div class="ref-list" id="ref-tools"></div>
+      </details>
+      <details class="ref-block">
+        <summary>Functions &amp; conditions</summary>
+        <div class="ref-list" id="ref-fns"></div>
+      </details>
+    </aside>
+
+    <div class="canvas" id="canvas">
+      <div class="canvas-content" id="canvas-content">
+        <svg class="wires" id="wires">
+          <g id="wire-layer"></g>
+          <path class="temp" id="temp-wire" d="" style="display:none" />
+        </svg>
+        <div id="node-layer"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Config modal -->
+  <div class="overlay" id="cfg-overlay">
+    <div class="modal" id="cfg-modal"></div>
+  </div>
+
+  <!-- JSON / validate modal -->
+  <div class="overlay" id="out-overlay">
+    <div class="modal" id="out-modal"></div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+/* =========================================================================
+ *  Reference data (mirrors StateMemory._INITIAL_MEMORY + BrainOutput Literal)
+ * ========================================================================= */
+const VARIABLES = [
+  "agent_decision","current_step","agent_setup_prompt","user_query",
+  "knowledge_base_topics","agent_model","agent_api_key","tavily_api_key",
+  "answer_delivered","conversation_history","system_events","tokenCount"
+];
+// Brain-decision tool values (router branch labels). fallback_agent is loop-guard injected.
+const BRAIN_TOOLS = [
+  "internet_search","RAG_search","collect_human_input",
+  "ready_for_answer","the_planner","end","fallback_agent"
+];
+const CONDITIONS = ["check_global_variable", "true (default)"];
+
+/* =========================================================================
+ *  Block catalog — single source of truth for palette + config forms.
+ *  control: text | textarea | bigtext | select | map | object
+ *  field.tmpl marks a value that should default to a ${var} template.
+ * ========================================================================= */
+const CATALOG = {
+  // ---------------- Lifecycle ----------------
+  start: {
+    label: "Start", category: "lifecycle", fn: "start", fixedName: "Start",
+    singleton: true, hasIn: false, outKind: "single",
+    fields: [
+      { key: "agent_setup_prompt_flag", label: "Setup prompt flag", control: "select", options: ["true","false"], def: "true" },
+      { key: "agent_setup_prompt", label: "Agent setup prompt (system prompt)", control: "bigtext", def: "" },
+      { key: "knowledge_base_topics", label: "Knowledge base topics", control: "textarea", def: "" },
+    ],
+  },
+  end: {
+    label: "End", category: "lifecycle", fn: "end", defaultName: "End",
+    hasIn: true, outKind: "endfinal",
+    fields: [
+      { key: "status", label: "End status", control: "text", def: "successful" },
+    ],
+    serializeArgs: (cfg) => [ cfg.status || "successful" ],
+  },
+  collect_human_input: {
+    label: "Collect human input", category: "lifecycle", fn: "collect_human_input",
+    defaultName: "human_input", hasIn: true, outKind: "single", noArgs: true,
+    fields: [],
+  },
+
+  // ---------------- AI ----------------
+  the_planner: {
+    label: "Planner", category: "ai", fn: "the_planner",
+    defaultName: "Planner", hasIn: true, outKind: "single",
+    fields: [
+      { key: "api_key", label: "API key", control: "text", def: "${agent_api_key}" },
+      { key: "model", label: "Model", control: "text", def: "${agent_model}" },
+      { key: "knowledge_base_topics", label: "Knowledge base topics", control: "text", def: "${knowledge_base_topics}" },
+      { key: "replan_instructions", label: "Replan instructions (optional)", control: "textarea", def: "", optional: true },
+    ],
+  },
+  the_brain: {
+    label: "Brain", category: "ai", fn: "the_brain",
+    defaultName: "the brain", hasIn: true, outKind: "single",
+    fields: [
+      { key: "agent_api", label: "API key", control: "text", def: "${agent_api_key}" },
+      { key: "agent_model", label: "Model", control: "text", def: "${agent_model}" },
+      { key: "conversation_language", label: "Conversation language", control: "text", def: "English" },
+      { key: "analyze_instructions_prompt", label: "Analyze / decision instructions", control: "bigtext", def: "" },
+      { key: "available_tools", label: "Available tools (name → description)", control: "map", def: {} },
+      { key: "knowledge_base_topics", label: "Knowledge base topics", control: "text", def: "${knowledge_base_topics}" },
+    ],
+  },
+  response_generator: {
+    label: "Response generator", category: "ai", fn: "response_generator",
+    defaultName: "Answer Question", hasIn: true, outKind: "single",
+    fields: [
+      { key: "model", label: "Model", control: "text", def: "${agent_model}" },
+      { key: "api_key", label: "API key", control: "text", def: "${agent_api_key}" },
+      { key: "response_language", label: "Response language", control: "text", def: "English" },
+      { key: "instructions_prompt", label: "Response instructions", control: "bigtext", def: "" },
+      { key: "response_tone", label: "Response tone", control: "object", def: {
+          personality: "", response_style: "", formality: "", communication_style: ""
+        },
+        objFields: [
+          { key: "personality", label: "Personality" },
+          { key: "response_style", label: "Response style" },
+          { key: "formality", label: "Formality" },
+          { key: "communication_style", label: "Communication style" },
+        ],
+      },
+    ],
+  },
+  fallback_agent: {
+    label: "Fallback agent", category: "ai", fn: "fallback_agent",
+    defaultName: "Fallback Agent Handler", hasIn: true, outKind: "single",
+    fields: [
+      { key: "api_key", label: "API key", control: "text", def: "${agent_api_key}" },
+      { key: "model", label: "Model", control: "text", def: "${agent_model}" },
+    ],
+  },
+
+  // ---------------- Tool ----------------
+  internet_search: {
+    label: "Internet search", category: "tool", fn: "internet_search",
+    defaultName: "Internet Search Handler", hasIn: true, outKind: "single",
+    fields: [
+      { key: "api_key", label: "Tavily API key", control: "text", def: "${tavily_api_key}" },
+      { key: "search_depth", label: "Search depth", control: "select", options: ["basic","advanced"], def: "basic" },
+      { key: "query_language", label: "Query language", control: "text", def: "English" },
+      { key: "search_instructions", label: "Search instructions", control: "textarea", def: "" },
+    ],
+  },
+  RAG_search: {
+    label: "RAG search", category: "tool", fn: "RAG_search",
+    defaultName: "RAG Search Handler", hasIn: true, outKind: "single",
+    fields: [
+      { key: "query_language", label: "Query language", control: "text", def: "English" },
+      { key: "retrieval_instructions", label: "Retrieval instructions", control: "textarea", def: "" },
+    ],
+  },
+
+  // ---------------- Routing ----------------
+  condition_check: {
+    label: "Tool router", category: "routing", fn: "condition_check",
+    defaultName: "tool_router", hasIn: true, outKind: "router", noArgs: true,
+    fields: [],
+  },
+};
+
+const KNOWN_FUNCTIONS = Object.values(CATALOG).map(c => c.fn);
+
+/* =========================================================================
+ *  State
+ * ========================================================================= */
+let nodes = [];   // {id, type, name, x, y, config, branches:[{id,tool}]}
+let edges = [];   // {id, from, fromPort, to}   fromPort: "out" | branchId | "default"
+let uid = 1;
+const nid = () => "n" + (uid++);
+const eid = () => "e" + (uid++);
+const handleEls = {}; // `${nodeId}:${port}` -> element
+
+const $ = (s, r = document) => r.querySelector(s);
+const canvasContent = $("#canvas-content");
+const nodeLayer = $("#node-layer");
+const wireLayer = $("#wire-layer");
+const tempWire = $("#temp-wire");
+
+/* =========================================================================
+ *  Init: palette, reference, default Start/End nodes
+ * ========================================================================= */
+function buildPalette() {
+  for (const [type, c] of Object.entries(CATALOG)) {
+    if (c.singleton || type === "end") continue; // Start/End are pre-placed
+    const chip = document.createElement("div");
+    chip.className = "chip";
+    chip.draggable = true;
+    chip.innerHTML = `<span class="dot ${c.category}"></span>
+      <span class="name">${c.label}</span><span class="fn">${c.fn}</span>`;
+    chip.addEventListener("dragstart", (e) => e.dataTransfer.setData("text/type", type));
+    $(`.palette-group[data-cat="${c.category}"]`).appendChild(chip);
+  }
+}
+function buildReference() {
+  VARIABLES.forEach(v => addTag("#ref-vars", "var", "${" + v + "}"));
+  BRAIN_TOOLS.forEach(t => addTag("#ref-tools", "tool", t));
+  KNOWN_FUNCTIONS.forEach(f => addTag("#ref-fns", "fn", f));
+  CONDITIONS.forEach(f => addTag("#ref-fns", "fn", f));
+}
+function addTag(sel, cls, text) {
+  const t = document.createElement("span");
+  t.className = "ref-tag " + cls;
+  t.textContent = text;
+  $(sel).appendChild(t);
+}
+
+function defaultConfig(type) {
+  const cfg = {};
+  for (const f of CATALOG[type].fields) {
+    cfg[f.key] = (typeof f.def === "object") ? JSON.parse(JSON.stringify(f.def)) : f.def;
+  }
+  return cfg;
+}
+function makeNode(type, x, y, name) {
+  const c = CATALOG[type];
+  const node = {
+    id: nid(), type, name: name || uniqueName(c.fixedName || c.defaultName || type),
+    x, y, config: defaultConfig(type),
+    branches: c.outKind === "router" ? [] : null,
+  };
+  nodes.push(node);
+  return node;
+}
+function uniqueName(base) {
+  let n = base, i = 2;
+  while (nodes.some(nd => nd.name === n)) n = base + " " + (i++);
+  return n;
+}
+
+function seedDefaults() {
+  nodes = []; edges = []; uid = 1;
+  makeNode("start", 120, 80);
+  makeNode("end", 120, 560);
+  render();
+}
+
+/* =========================================================================
+ *  Rendering
+ * ========================================================================= */
+function render() {
+  for (const k in handleEls) delete handleEls[k];
+  nodeLayer.innerHTML = "";
+  for (const node of nodes) nodeLayer.appendChild(renderNode(node));
+  redrawWires();
+}
+
+function renderNode(node) {
+  const c = CATALOG[node.type];
+  const el = document.createElement("div");
+  el.className = "node" + (node.id === selectedId ? " selected" : "");
+  el.style.left = node.x + "px";
+  el.style.top = node.y + "px";
+  el.dataset.id = node.id;
+
+  const canDelete = !c.singleton && node.type !== "end";
+  el.innerHTML = `
+    <div class="node-head">
+      <span class="dot ${c.category}"></span>
+      <span class="nm">${escapeHtml(node.name)}</span>
+      ${canDelete ? '<span class="del" title="Delete">&times;</span>' : ''}
+    </div>
+    <div class="node-body">
+      <div class="node-fn">${c.fn}()</div>
+      ${node.type === "end" ? '<div class="node-meta">→ EndFinal</div>' : ''}
+    </div>`;
+
+  // input handle
+  if (c.hasIn) el.appendChild(makeHandle(node.id, "in", "in"));
+
+  // output handle(s)
+  if (c.outKind === "single") {
+    el.appendChild(makeHandle(node.id, "out", "out"));
+  } else if (c.outKind === "router") {
+    const body = el.querySelector(".node-body");
+    node.branches.forEach(br => {
+      const row = document.createElement("div");
+      row.className = "branch-row";
+      row.innerHTML = `<span class="lbl" title="${escapeHtml(br.tool)}">${escapeHtml(br.tool || "—")}</span>`;
+      row.appendChild(makeHandle(node.id, br.id, "out"));
+      body.appendChild(row);
+    });
+    const drow = document.createElement("div");
+    drow.className = "branch-row default";
+    drow.innerHTML = `<span class="lbl">default →</span>`;
+    drow.appendChild(makeHandle(node.id, "default", "out"));
+    body.appendChild(drow);
+  }
+  // node "endfinal": no output handle
+
+  // dragging
+  const head = el.querySelector(".node-head");
+  head.addEventListener("mousedown", (e) => startNodeDrag(e, node));
+  head.addEventListener("click", (e) => {
+    if (e.target.classList.contains("del")) { deleteNode(node.id); return; }
+    if (!draggedMoved) openConfig(node.id);
+  });
+  const del = el.querySelector(".del");
+  if (del) del.addEventListener("mousedown", e => e.stopPropagation());
+  return el;
+}
+
+function makeHandle(nodeId, port, dir) {
+  const h = document.createElement("div");
+  h.className = "handle " + dir;
+  h.dataset.node = nodeId; h.dataset.port = port; h.dataset.dir = dir;
+  handleEls[`${nodeId}:${port}`] = h;
+  if (dir === "out") h.addEventListener("mousedown", (e) => startWire(e, nodeId, port));
+  return h;
+}
+
+function portCenter(nodeId, port) {
+  const h = handleEls[`${nodeId}:${port}`];
+  if (!h) return null;
+  const r = h.getBoundingClientRect();
+  const cc = canvasContent.getBoundingClientRect();
+  return { x: r.left + r.width / 2 - cc.left, y: r.top + r.height / 2 - cc.top };
+}
+
+function wirePath(a, b) {
+  const dy = Math.max(40, Math.abs(b.y - a.y) * 0.5);
+  return `M ${a.x} ${a.y} C ${a.x} ${a.y + dy}, ${b.x} ${b.y - dy}, ${b.x} ${b.y}`;
+}
+
+function redrawWires() {
+  wireLayer.innerHTML = "";
+  for (const e of edges) {
+    const a = portCenter(e.from, e.fromPort);
+    const b = portCenter(e.to, "in");
+    if (!a || !b) continue;
+    const d = wirePath(a, b);
+    const hit = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    hit.setAttribute("class", "hit"); hit.setAttribute("d", d);
+    hit.addEventListener("click", () => { deleteEdge(e.id); });
+    const vis = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    vis.setAttribute("class", "wire"); vis.setAttribute("d", d);
+    hit.addEventListener("mouseenter", () => vis.classList.add("hover"));
+    hit.addEventListener("mouseleave", () => vis.classList.remove("hover"));
+    wireLayer.appendChild(vis);
+    wireLayer.appendChild(hit);
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, m => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+}
+
+/* =========================================================================
+ *  Drag from palette → drop on canvas
+ * ========================================================================= */
+const canvas = $("#canvas");
+canvas.addEventListener("dragover", (e) => e.preventDefault());
+canvas.addEventListener("drop", (e) => {
+  e.preventDefault();
+  const type = e.dataTransfer.getData("text/type");
+  if (!type || !CATALOG[type]) return;
+  const cc = canvasContent.getBoundingClientRect();
+  const x = e.clientX - cc.left - 98;
+  const y = e.clientY - cc.top - 20;
+  const node = makeNode(type, Math.max(0, x), Math.max(0, y));
+  render();
+  openConfig(node.id);
+});
+
+/* =========================================================================
+ *  Node dragging
+ * ========================================================================= */
+let dragCtx = null, draggedMoved = false;
+function startNodeDrag(e, node) {
+  if (e.target.classList.contains("handle")) return;
+  e.preventDefault();
+  draggedMoved = false;
+  const cc = canvasContent.getBoundingClientRect();
+  dragCtx = { node, offX: e.clientX - cc.left - node.x, offY: e.clientY - cc.top - node.y };
+  document.addEventListener("mousemove", onNodeDrag);
+  document.addEventListener("mouseup", endNodeDrag);
+}
+function onNodeDrag(e) {
+  if (!dragCtx) return;
+  draggedMoved = true;
+  const cc = canvasContent.getBoundingClientRect();
+  dragCtx.node.x = Math.max(0, e.clientX - cc.left - dragCtx.offX);
+  dragCtx.node.y = Math.max(0, e.clientY - cc.top - dragCtx.offY);
+  const el = nodeLayer.querySelector(`.node[data-id="${dragCtx.node.id}"]`);
+  el.style.left = dragCtx.node.x + "px";
+  el.style.top = dragCtx.node.y + "px";
+  redrawWires();
+}
+function endNodeDrag() {
+  dragCtx = null;
+  document.removeEventListener("mousemove", onNodeDrag);
+  document.removeEventListener("mouseup", endNodeDrag);
+  setTimeout(() => { draggedMoved = false; }, 0);
+}
+
+/* =========================================================================
+ *  Wiring (output handle → input handle)
+ * ========================================================================= */
+let wireCtx = null;
+function startWire(e, nodeId, port) {
+  e.preventDefault(); e.stopPropagation();
+  wireCtx = { from: nodeId, fromPort: port };
+  tempWire.style.display = "";
+  document.addEventListener("mousemove", onWireMove);
+  document.addEventListener("mouseup", endWire);
+}
+function onWireMove(e) {
+  if (!wireCtx) return;
+  const a = portCenter(wireCtx.from, wireCtx.fromPort);
+  const cc = canvasContent.getBoundingClientRect();
+  const b = { x: e.clientX - cc.left, y: e.clientY - cc.top };
+  tempWire.setAttribute("d", wirePath(a, b));
+}
+function endWire(e) {
+  document.removeEventListener("mousemove", onWireMove);
+  document.removeEventListener("mouseup", endWire);
+  tempWire.style.display = "none";
+  if (!wireCtx) return;
+  const target = e.target.closest && e.target.closest(".handle.in");
+  if (target) {
+    const toNode = target.dataset.node;
+    if (toNode !== wireCtx.from) connect(wireCtx.from, wireCtx.fromPort, toNode);
+  }
+  wireCtx = null;
+}
+function connect(from, fromPort, to) {
+  // one outgoing edge per output port → replace
+  edges = edges.filter(e => !(e.from === from && e.fromPort === fromPort));
+  edges.push({ id: eid(), from, fromPort, to });
+  redrawWires();
+}
+function deleteEdge(id) { edges = edges.filter(e => e.id !== id); redrawWires(); }
+function deleteNode(id) {
+  nodes = nodes.filter(n => n.id !== id);
+  edges = edges.filter(e => e.from !== id && e.to !== id);
+  if (selectedId === id) selectedId = null;
+  render();
+}
+
+/* =========================================================================
+ *  Config modal (schema-driven)
+ * ========================================================================= */
+let selectedId = null;
+const cfgOverlay = $("#cfg-overlay");
+const cfgModal = $("#cfg-modal");
+
+function openConfig(id) {
+  const node = nodes.find(n => n.id === id);
+  if (!node) return;
+  selectedId = id;
+  const c = CATALOG[node.type];
+  render();
+
+  let html = `<h3>${c.label}</h3><div class="sub"><code>${c.fn}()</code> — configure this state</div>`;
+
+  // State name
+  html += field("State name",
+    c.fixedName
+      ? `<input type="text" id="f-name" value="${escapeHtml(node.name)}" disabled />`
+      : `<input type="text" id="f-name" value="${escapeHtml(node.name)}" />`);
+
+  // Router branch editor
+  if (c.outKind === "router") {
+    html += `<div class="field"><label>Routing branches (brain decision → next state)</label>
+      <div class="branch-editor" id="branch-editor"></div>
+      <span class="add-link" id="add-branch">+ Add branch</span>
+      <div class="sub" style="margin-top:8px">Wire each branch's right-side port (and the <i>default</i> port) to a next state on the canvas.</div>
+    </div>`;
+  }
+
+  // Fields
+  for (const f of c.fields) html += renderField(f, node.config[f.key]);
+
+  html += `<div class="modal-actions">
+      <button class="btn ghost" id="cfg-cancel">Cancel</button>
+      <button class="btn primary" id="cfg-save">Save</button>
+    </div>`;
+  cfgModal.innerHTML = html;
+  cfgOverlay.classList.add("show");
+
+  if (c.outKind === "router") {
+    renderBranchEditor(node);
+    $("#add-branch").addEventListener("click", () => {
+      node.branches.push({ id: "b" + (uid++), tool: BRAIN_TOOLS[0] });
+      renderBranchEditor(node);
+    });
+  }
+  $("#cfg-cancel").addEventListener("click", closeConfig);
+  $("#cfg-save").addEventListener("click", () => saveConfig(node));
+}
+
+function field(label, inner) {
+  return `<div class="field"><label>${label}</label>${inner}</div>`;
+}
+function renderField(f, val) {
+  const id = "f-" + f.key;
+  if (f.control === "text")
+    return field(f.label, `<input type="text" id="${id}" value="${escapeHtml(val ?? "")}" />`);
+  if (f.control === "textarea")
+    return field(f.label, `<textarea id="${id}">${escapeHtml(val ?? "")}</textarea>`);
+  if (f.control === "bigtext")
+    return field(f.label, `<textarea id="${id}" class="big">${escapeHtml(val ?? "")}</textarea>`);
+  if (f.control === "select") {
+    const opts = f.options.map(o => `<option ${o === val ? "selected" : ""}>${o}</option>`).join("");
+    return field(f.label, `<select id="${id}">${opts}</select>`);
+  }
+  if (f.control === "object") {
+    let inner = `<div class="obj-group">`;
+    for (const of of f.objFields)
+      inner += field(of.label, `<input type="text" data-objkey="${of.key}" id="${id}-${of.key}" value="${escapeHtml((val && val[of.key]) ?? "")}" />`);
+    inner += `</div>`;
+    return field(f.label, inner);
+  }
+  if (f.control === "map") {
+    let rows = "";
+    const entries = Object.entries(val || {});
+    for (const [k, v] of entries) rows += mapRow(k, v);
+    return field(f.label,
+      `<div class="map-editor" id="${id}">${rows}</div>
+       <span class="add-link" data-addmap="${id}">+ Add entry</span>`);
+  }
+  return "";
+}
+function mapRow(k, v) {
+  return `<div class="map-row">
+    <input type="text" class="k" placeholder="tool name" value="${escapeHtml(k)}" />
+    <input type="text" class="v" placeholder="description" value="${escapeHtml(v)}" />
+    <button type="button" class="icon-btn" data-rm="1">&times;</button>
+  </div>`;
+}
+// delegate map add/remove
+cfgModal.addEventListener("click", (e) => {
+  if (e.target.dataset && e.target.dataset.addmap) {
+    const box = $("#" + e.target.dataset.addmap);
+    box.insertAdjacentHTML("beforeend", mapRow("", ""));
+  }
+  if (e.target.dataset && e.target.dataset.rm) e.target.closest(".map-row").remove();
+});
+
+function renderBranchEditor(node) {
+  const box = $("#branch-editor");
+  box.innerHTML = node.branches.map((br, i) => `
+    <div class="b-row" data-i="${i}">
+      <select data-bsel="${i}">
+        ${BRAIN_TOOLS.map(t => `<option ${t === br.tool ? "selected" : ""}>${t}</option>`).join("")}
+      </select>
+      <input type="text" data-binput="${i}" value="${escapeHtml(br.tool)}" placeholder="tool_to_use" />
+      <button type="button" class="icon-btn" data-brm="${i}">&times;</button>
+    </div>`).join("");
+  box.querySelectorAll("[data-bsel]").forEach(sel => sel.addEventListener("change", (e) => {
+    const i = +e.target.dataset.bsel; node.branches[i].tool = e.target.value;
+    box.querySelector(`[data-binput="${i}"]`).value = e.target.value;
+  }));
+  box.querySelectorAll("[data-binput]").forEach(inp => inp.addEventListener("input", (e) => {
+    node.branches[+e.target.dataset.binput].tool = e.target.value;
+  }));
+  box.querySelectorAll("[data-brm]").forEach(btn => btn.addEventListener("click", (e) => {
+    const i = +e.target.dataset.brm;
+    const removed = node.branches.splice(i, 1)[0];
+    edges = edges.filter(ed => !(ed.from === node.id && ed.fromPort === removed.id));
+    renderBranchEditor(node);
+  }));
+}
+
+function saveConfig(node) {
+  const c = CATALOG[node.type];
+  if (!c.fixedName) {
+    const newName = $("#f-name").value.trim();
+    if (!newName) { toast("State name cannot be empty", "err"); return; }
+    if (nodes.some(n => n !== node && n.name === newName)) { toast("State name already used", "err"); return; }
+    node.name = newName;
+  }
+  for (const f of c.fields) {
+    if (f.control === "object") {
+      const obj = {};
+      cfgModal.querySelectorAll(`[id^="f-${f.key}-"]`).forEach(inp => obj[inp.dataset.objkey] = inp.value);
+      node.config[f.key] = obj;
+    } else if (f.control === "map") {
+      const map = {};
+      $("#f-" + f.key).querySelectorAll(".map-row").forEach(r => {
+        const k = r.querySelector(".k").value.trim();
+        if (k) map[k] = r.querySelector(".v").value;
+      });
+      node.config[f.key] = map;
+    } else {
+      node.config[f.key] = $("#f-" + f.key).value;
+    }
+  }
+  closeConfig();
+  render();
+  toast("Saved", "ok");
+}
+function closeConfig() { cfgOverlay.classList.remove("show"); }
+cfgOverlay.addEventListener("click", (e) => { if (e.target === cfgOverlay) closeConfig(); });
+
+/* =========================================================================
+ *  Validation
+ * ========================================================================= */
+function validateFlow() {
+  const errs = [];
+  const startNodes = nodes.filter(n => n.type === "start");
+  const endNodes = nodes.filter(n => n.type === "end");
+
+  if (startNodes.length !== 1) errs.push(`There must be exactly one Start node (found ${startNodes.length}).`);
+  if (endNodes.length < 1) errs.push("There must be at least one End node.");
+
+  // unique non-empty names
+  const seen = {};
+  for (const n of nodes) {
+    if (!n.name || !n.name.trim()) errs.push(`A ${CATALOG[n.type].label} block has an empty state name.`);
+    if (seen[n.name]) errs.push(`Duplicate state name: "${n.name}".`);
+    seen[n.name] = true;
+  }
+
+  const outFrom = (id) => edges.filter(e => e.from === id);
+  const inTo = (id) => edges.filter(e => e.to === id);
+
+  for (const n of nodes) {
+    const c = CATALOG[n.type];
+    if (c.outKind === "single") {
+      const o = outFrom(n.id);
+      if (o.length === 0) errs.push(`"${n.name}" (${c.fn}) has no outgoing connection.`);
+    } else if (c.outKind === "router") {
+      if (n.branches.length === 0) errs.push(`Router "${n.name}" has no branches.`);
+      for (const br of n.branches) {
+        if (!br.tool || !br.tool.trim()) errs.push(`Router "${n.name}" has a branch with an empty tool label.`);
+        if (!edges.some(e => e.from === n.id && e.fromPort === br.id))
+          errs.push(`Router "${n.name}" branch "${br.tool}" is not wired to a next state.`);
+      }
+      if (!edges.some(e => e.from === n.id && e.fromPort === "default"))
+        errs.push(`Router "${n.name}" default branch is not wired to a next state.`);
+    }
+    if (c.hasIn && inTo(n.id).length === 0)
+      errs.push(`"${n.name}" (${c.fn}) has no incoming connection (unreachable).`);
+  }
+
+  // reachability from Start
+  if (startNodes.length === 1) {
+    const adj = {};
+    for (const e of edges) (adj[e.from] = adj[e.from] || []).push(e.to);
+    const visited = new Set([startNodes[0].id]);
+    const stack = [startNodes[0].id];
+    while (stack.length) {
+      const cur = stack.pop();
+      for (const nxt of (adj[cur] || [])) if (!visited.has(nxt)) { visited.add(nxt); stack.push(nxt); }
+    }
+    for (const n of nodes)
+      if (!visited.has(n.id)) errs.push(`"${n.name}" is not reachable from Start.`);
+  }
+
+  return errs;
+}
+
+/* =========================================================================
+ *  Config generation
+ * ========================================================================= */
+function trimConfig(node) {
+  const c = CATALOG[node.type];
+  if (c.noArgs) return [];
+  if (c.serializeArgs) return c.serializeArgs(node.config);
+  const dict = {};
+  for (const f of c.fields) {
+    const v = node.config[f.key];
+    if (f.control === "map" || f.control === "object") {
+      if (v && Object.keys(v).length) dict[f.key] = v;
+    } else if (v !== "" && v != null) {
+      dict[f.key] = v;
+    } else if (!f.optional) {
+      dict[f.key] = v ?? "";
+    }
+  }
+  return [dict];
+}
+
+function generateConfig() {
+  const sm = {};
+  const nameOf = (id) => { const n = nodes.find(x => x.id === id); return n ? n.name : null; };
+
+  for (const node of nodes) {
+    const c = CATALOG[node.type];
+    const state = { function: c.fn, args: trimConfig(node) };
+
+    if (c.outKind === "endfinal") {
+      state.nextState = "EndFinal";
+    } else if (c.outKind === "router") {
+      const branches = [];
+      for (const br of node.branches) {
+        const e = edges.find(ed => ed.from === node.id && ed.fromPort === br.id);
+        if (!e) continue;
+        branches.push({
+          conditionFunction: "check_global_variable",
+          args: [{ read_agent_decision: "${agent_decision}", tool_to_use: br.tool }],
+          nextState: nameOf(e.to),
+        });
+      }
+      const de = edges.find(ed => ed.from === node.id && ed.fromPort === "default");
+      if (de) branches.push({ conditionFunction: true, args: [], nextState: nameOf(de.to) });
+      state.nextState = branches;
+    } else {
+      const e = edges.find(ed => ed.from === node.id && ed.fromPort === "out");
+      state.nextState = e ? nameOf(e.to) : "";
+    }
+    sm[node.name] = state;
+  }
+  return { stateMachine: sm };
+}
+
+/* =========================================================================
+ *  Output modals
+ * ========================================================================= */
+const outOverlay = $("#out-overlay");
+const outModal = $("#out-modal");
+outOverlay.addEventListener("click", (e) => { if (e.target === outOverlay) outOverlay.classList.remove("show"); });
+
+function showValidation() {
+  const errs = validateFlow();
+  let html = `<h3>Validation</h3>`;
+  if (errs.length === 0) {
+    html += `<ul class="validate-list"><li class="ok"><span class="ic">✔</span> Flow is valid — ready to generate JSON.</li></ul>`;
+  } else {
+    html += `<div class="sub">${errs.length} issue(s) found:</div><ul class="validate-list">`;
+    for (const e of errs) html += `<li class="bad"><span class="ic">✕</span><span>${escapeHtml(e)}</span></li>`;
+    html += `</ul>`;
+  }
+  html += `<div class="modal-actions"><button class="btn ghost" id="out-close">Close</button></div>`;
+  outModal.innerHTML = html;
+  outOverlay.classList.add("show");
+  $("#out-close").addEventListener("click", () => outOverlay.classList.remove("show"));
+  return errs.length === 0;
+}
+
+function showJson() {
+  const errs = validateFlow();
+  if (errs.length) { showValidation(); toast("Fix validation issues first", "err"); return; }
+  const cfg = generateConfig();
+  const text = JSON.stringify(cfg, null, 2);
+  outModal.innerHTML = `<h3>Generated config</h3>
+    <div class="sub">Drop-in <code>state_machine_config.json</code> — consumed by <code>StateMachine(config=…)</code>.</div>
+    <pre class="json" id="json-out">${escapeHtml(text)}</pre>
+    <div class="modal-actions">
+      <button class="btn ghost" id="out-close">Close</button>
+      <button class="btn" id="json-copy">Copy</button>
+      <button class="btn primary" id="json-dl">Download</button>
+    </div>`;
+  outOverlay.classList.add("show");
+  $("#out-close").addEventListener("click", () => outOverlay.classList.remove("show"));
+  $("#json-copy").addEventListener("click", () => {
+    navigator.clipboard.writeText(text).then(() => toast("Copied", "ok"), () => toast("Copy failed", "err"));
+  });
+  $("#json-dl").addEventListener("click", () => {
+    const blob = new Blob([text], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "state_machine_config.json";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+}
+
+/* =========================================================================
+ *  Toast + wiring up buttons
+ * ========================================================================= */
+let toastTimer;
+function toast(msg, kind) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.className = "toast show " + (kind || "");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 1800);
+}
+
+$("#btn-validate").addEventListener("click", showValidation);
+$("#btn-generate").addEventListener("click", showJson);
+$("#btn-clear").addEventListener("click", () => {
+  if (confirm("Reset the canvas? This clears all blocks except Start and End.")) seedDefaults();
+});
+window.addEventListener("resize", redrawWires);
+canvas.addEventListener("scroll", redrawWires);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { closeConfig(); outOverlay.classList.remove("show"); }
+});
+
+/* boot */
+buildPalette();
+buildReference();
+seedDefaults();
+</script>
+</body>
+</html>
