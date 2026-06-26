@@ -5,6 +5,7 @@ from typing import Any, Dict
 from openai import OpenAI
 
 from mini_agent.models.brain_output import BrainOutput
+from mini_agent.states.utils import render_tools
 
 MAX_RETRIES = 3
 
@@ -36,16 +37,11 @@ class TheBrain:
             knowledge_base_topics: str = "",
         ) -> str:
 
-        tools_lines = []
-        for tool_name, description in available_tools.items():
-            if tool_name == "RAG_search" and knowledge_base_topics:
-                description = (
-                    f"{description} — {knowledge_base_topics}. "
-                    "ONLY use this tool for questions about these specific topics; "
-                    "for all other subjects use internet_search instead."
-                )
-            tools_lines.append(f"  - {tool_name}: {description}")
-        tools_block = "\n".join(tools_lines)
+        tools_block = render_tools(
+            available_tools,
+            include_internal=True,
+            knowledge_base_topics=knowledge_base_topics,
+        )
 
         return (
             f"{agent_setup_prompt}\n\n"
