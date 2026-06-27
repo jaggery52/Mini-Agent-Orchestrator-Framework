@@ -1,12 +1,3 @@
-"""Framework-owned registry of how each internal tool actually works.
-
-These are the *system* descriptions — the mechanics of every built-in tool the
-agent can route to (names mirror the ``BrainOutput`` / ``PlannerOutput`` Literal).
-They are paired with the user's own per-block ``available_tools`` descriptions
-(which say *why/when* to use a tool) when rendering an AI block's prompt — see
-``mini_agent.states.utils.render_tools``.
-"""
-
 TOOL_REGISTRY: dict[str, str] = {
     "internet_search": (
         "Runs a live web search (Tavily) for a given query and returns summarized "
