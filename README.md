@@ -48,6 +48,7 @@ All credentials are injected from GitHub Secrets — nothing sensitive lives in 
 - Each agent is one folder: `src/mini_agent/configs/<usecase>/state_machine_config.json` (states, prompts, tool catalogue, routing).
 - **Adding a tool = 3 small steps:** write a handler method, add a state + router branch in JSON, add the tool name to the brain's output schema. No framework plumbing.
 - Two usecases ship out of the box: `tour_agency` (travel planner) and `document_helper` (document Q&A).
+- **Build your own flow** in the browser ([`clients/web/flow-builder.html`](clients/web/flow-builder.html), served at `/flow-builder`): the visual designer emits a `state_machine_config.json` and "Use this flow" sends it on connect. The `init` handshake then carries `config_source: "user_config"` plus a `flow_config` object (`{ "stateMachine": { … } }`); the engine runs that config directly instead of a disk usecase. Validation is client-side; the config is held in the browser only (no persistence yet).
 - Keys and KB documents are supplied **per session by the client** — the server holds no LLM keys and bakes in no knowledge base.
 
 ## Quick start

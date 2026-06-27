@@ -22,7 +22,15 @@
                 {
                     "api_key": "${agent_api_key}",
                     "model": "${agent_model}",
-                    "knowledge_base_topics": "${knowledge_base_topics}"
+                    "knowledge_base_topics": "${knowledge_base_topics}",
+                    "available_tools": {
+                        "internet_search": "Plan an internet_search step only for current, time-sensitive context the catalog cannot provide — weather for the travel month, festivals/holidays, or basic visa/entry notes. Never to source tour packages",
+                        "RAG_search": "Plan a RAG_search step to ground the tour plan in the company's tour-package catalog — packages, itineraries, hotels, durations, prices, inclusions, and add-ons",
+                        "collect_human_input": "Plan a collect_human_input step when a critical customer detail (destination, dates, duration, group, budget, interests, or constraints) is likely missing before recommendations can be made",
+                        "ready_for_answer": "Always the final step — assemble and deliver the tailored tour plan once enough information has been gathered",
+                        "the_planner": "Only in replan scenarios — revise the remaining plan when the travel agent changes the brief",
+                        "end": "Plan a single end step to refuse immediately when the request is harmful, illegal, or unethical"
+                    }
                 }
             ],
             "nextState": "the brain"
@@ -165,7 +173,15 @@
                 {
                     "api_key": "${agent_api_key}",
                     "model": "${agent_model}",
-                    "knowledge_base_topics": "${knowledge_base_topics}"
+                    "knowledge_base_topics": "${knowledge_base_topics}",
+                    "available_tools": {
+                        "internet_search": "Plan an internet_search step only for current, time-sensitive context the catalog cannot provide — weather for the travel month, festivals/holidays, or basic visa/entry notes. Never to source tour packages",
+                        "RAG_search": "Plan a RAG_search step to ground the tour plan in the company's tour-package catalog — packages, itineraries, hotels, durations, prices, inclusions, and add-ons",
+                        "collect_human_input": "Plan a collect_human_input step when a critical customer detail (destination, dates, duration, group, budget, interests, or constraints) is likely missing before recommendations can be made",
+                        "ready_for_answer": "Always the final step — assemble and deliver the tailored tour plan once enough information has been gathered",
+                        "the_planner": "Only in replan scenarios — revise the remaining plan when the travel agent changes the brief",
+                        "end": "Plan a single end step to refuse immediately when the request is harmful, illegal, or unethical"
+                    }
                 }
             ],
             "nextState": "the brain"

@@ -1003,6 +1003,15 @@
       </div>
 
       <div class="field">
+        <label>Custom flow <span class="opt">(optional — run your own state machine instead of a usecase)</span></label>
+        <div class="account-row">
+          <button type="button" class="secondary-button visible" id="buildFlowButton">Build your own flow</button>
+          <span id="customFlowStatus" class="account-note" style="margin:0;">No custom flow loaded.</span>
+          <button type="button" class="link-button" id="clearFlowButton" style="display:none;">Clear</button>
+        </div>
+      </div>
+
+      <div class="field">
         <label for="fDocs">Knowledge base docs <span class="opt">(.txt/.md — built per session, required)</span></label>
         <input id="fDocs" type="file" accept=".txt,.md" multiple>
       </div>
@@ -1060,6 +1069,9 @@
       : location.protocol === "http:" ? `ws://${location.host}/ws`
       : "ws://localhost:80/ws";
     const STORE_KEY = "miniAgentConnection";
+    // Set by flow-builder.html ("Use this flow"). When present, connect with the
+    // custom state machine (config_source: "user_config") instead of a disk usecase.
+    const FLOW_STORE_KEY = "miniAgentFlowConfig";
 
     // The server requires an `init` handshake (auth token + LLM/search keys + model
     // names + usecase) as the very first message. The browser collects these from the
@@ -1086,6 +1098,9 @@
     const fModel = document.getElementById("fModel");
     const fEmbed = document.getElementById("fEmbed");
     const fRemember = document.getElementById("fRemember");
+    const buildFlowButton = document.getElementById("buildFlowButton");
+    const clearFlowButton = document.getElementById("clearFlowButton");
+    const customFlowStatus = document.getElementById("customFlowStatus");
     const settingsButton = document.getElementById("settingsButton");
     const accountEmail = document.getElementById("accountEmail");
     const signOutButton = document.getElementById("signOutButton");
@@ -1676,9 +1691,45 @@
     }
     fUsecase.addEventListener("change", syncCollectionPlaceholder);
 
+    // ---- Custom flow (built in flow-builder.html) ---------------------------
+    function getStoredFlow() {
+      try {
+        const cfg = JSON.parse(localStorage.getItem(FLOW_STORE_KEY));
+        return cfg && cfg.stateMachine ? cfg : null;
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function refreshCustomFlowStatus() {
+      const flow = getStoredFlow();
+      const hasFlow = Boolean(flow);
+      const stateCount = hasFlow ? Object.keys(flow.stateMachine).length : 0;
+      customFlowStatus.textContent = hasFlow
+        ? `Custom flow loaded (${stateCount} states) — it overrides the usecase above.`
+        : "No custom flow loaded.";
+      clearFlowButton.style.display = hasFlow ? "" : "none";
+      fUsecase.disabled = hasFlow;
+    }
+
+    buildFlowButton.addEventListener("click", () => {
+      window.open("/flow-builder", "miniAgentFlowBuilder");
+    });
+
+    clearFlowButton.addEventListener("click", () => {
+      localStorage.removeItem(FLOW_STORE_KEY);
+      refreshCustomFlowStatus();
+    });
+
+    // Pick up a flow saved in the builder tab when the user returns to this one.
+    window.addEventListener("focus", () => {
+      if (connectDialog.open) refreshCustomFlowStatus();
+    });
+
     function openConnectDialog() {
       showConnectError("");
       prefillConnectForm();
+      refreshCustomFlowStatus();
       if (!connectDialog.open) {
         connectDialog.showModal();
       }
@@ -1688,7 +1739,8 @@
       event.preventDefault();
 
       const url = fUrl.value.trim() || DEFAULT_WS_URL;
-      const usecase = fUsecase.value.trim();
+      const customFlow = getStoredFlow();
+      const usecase = customFlow ? "custom" : fUsecase.value.trim();
       const collection = fCollection.value.trim() || usecase;
       const openaiKey = fOpenai.value.trim();
 
@@ -1720,12 +1772,16 @@
         agent_model: fModel.value.trim() || "gpt-4.1-mini",
         embedding_model: fEmbed.value.trim() || "text-embedding-3-small",
       };
+      if (customFlow) {
+        initPayload.config_source = "user_config";
+        initPayload.flow_config = customFlow;
+      }
 
       // The access token is never stored here — it lives in the user session
       // (miniAgentUser) set at login. Only connection prefs/keys are remembered.
       if (fRemember.checked) {
         localStorage.setItem(STORE_KEY, JSON.stringify({
-          url, usecase, collection_name: collection,
+          url, usecase: fUsecase.value.trim(), collection_name: fCollection.value.trim(),
           openai_api_key: openaiKey, tavily_api_key: fTavily.value.trim(),
           agent_model: initPayload.agent_model, embedding_model: initPayload.embedding_model,
           remember: true,

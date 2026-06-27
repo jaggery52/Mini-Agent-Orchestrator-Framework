@@ -16,6 +16,8 @@ class SessionContext:
         self.should_stop: bool = False
         self.user_email: str = ""
         self.usecase: str = ""
+        self.config_source: str = "local"
+        self.flow_config = None
         self.collection_name: str = ""
         self.docs_folder: str = ""
         self.rag_search = None

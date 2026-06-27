@@ -247,7 +247,8 @@
     <div class="spacer"></div>
     <button class="btn ghost" id="btn-clear">Reset</button>
     <button class="btn" id="btn-validate">Validate</button>
-    <button class="btn primary" id="btn-generate">Generate JSON</button>
+    <button class="btn" id="btn-generate">Generate JSON</button>
+    <button class="btn primary" id="btn-use">Use this flow</button>
   </div>
 
   <div class="main">
@@ -356,6 +357,8 @@ const CATALOG = {
       { key: "api_key", label: "API key", control: "text", def: "${agent_api_key}" },
       { key: "model", label: "Model", control: "text", def: "${agent_model}" },
       { key: "knowledge_base_topics", label: "Knowledge base topics", control: "text", def: "${knowledge_base_topics}" },
+      { key: "available_tools", label: "Available tools (name → description)", control: "map", def: {},
+        keyOptions: BRAIN_TOOLS.filter(t => t !== "fallback_agent"), addLabel: "+ Add tools" },
       { key: "replan_instructions", label: "Replan instructions (optional)", control: "textarea", def: "", optional: true },
     ],
   },
@@ -367,7 +370,8 @@ const CATALOG = {
       { key: "agent_model", label: "Model", control: "text", def: "${agent_model}" },
       { key: "conversation_language", label: "Conversation language", control: "text", def: "English" },
       { key: "analyze_instructions_prompt", label: "Analyze / decision instructions", control: "bigtext", def: "" },
-      { key: "available_tools", label: "Available tools (name → description)", control: "map", def: {} },
+      { key: "available_tools", label: "Available tools (name → description)", control: "map", def: {},
+        keyOptions: BRAIN_TOOLS.filter(t => t !== "fallback_agent"), addLabel: "+ Add tools" },
       { key: "knowledge_base_topics", label: "Knowledge base topics", control: "text", def: "${knowledge_base_topics}" },
     ],
   },
@@ -784,16 +788,27 @@ function renderField(f, val) {
   if (f.control === "map") {
     let rows = "";
     const entries = Object.entries(val || {});
-    for (const [k, v] of entries) rows += mapRow(k, v);
+    for (const [k, v] of entries) rows += mapRow(k, v, f.keyOptions);
     return field(f.label,
-      `<div class="map-editor" id="${id}">${rows}</div>
-       <span class="add-link" data-addmap="${id}">+ Add entry</span>`);
+      `<div class="map-editor" id="${id}" data-keyopts="${escapeHtml(JSON.stringify(f.keyOptions || []))}">${rows}</div>
+       <span class="add-link" data-addmap="${id}">${f.addLabel || "+ Add entry"}</span>`);
   }
   return "";
 }
-function mapRow(k, v) {
+function mapRow(k, v, options) {
+  let keyCell;
+  if (options && options.length) {
+    const opts = options.slice();
+    if (k && !opts.includes(k)) opts.push(k);  // preserve unknown values (e.g. cloned built-ins)
+    const optsHtml = [`<option value="">tool name…</option>`]
+      .concat(opts.map(o => `<option ${o === k ? "selected" : ""}>${escapeHtml(o)}</option>`))
+      .join("");
+    keyCell = `<select class="k">${optsHtml}</select>`;
+  } else {
+    keyCell = `<input type="text" class="k" placeholder="tool name" value="${escapeHtml(k)}" />`;
+  }
   return `<div class="map-row">
-    <input type="text" class="k" placeholder="tool name" value="${escapeHtml(k)}" />
+    ${keyCell}
     <input type="text" class="v" placeholder="description" value="${escapeHtml(v)}" />
     <button type="button" class="icon-btn" data-rm="1">&times;</button>
   </div>`;
@@ -802,7 +817,8 @@ function mapRow(k, v) {
 cfgModal.addEventListener("click", (e) => {
   if (e.target.dataset && e.target.dataset.addmap) {
     const box = $("#" + e.target.dataset.addmap);
-    box.insertAdjacentHTML("beforeend", mapRow("", ""));
+    const opts = JSON.parse(box.dataset.keyopts || "[]");
+    box.insertAdjacentHTML("beforeend", mapRow("", "", opts));
   }
   if (e.target.dataset && e.target.dataset.rm) e.target.closest(".map-row").remove();
 });
@@ -1041,6 +1057,20 @@ function toast(msg, kind) {
 
 $("#btn-validate").addEventListener("click", showValidation);
 $("#btn-generate").addEventListener("click", showJson);
+
+// Validate, then hand the generated config to the agent UI (runtime save in
+// localStorage — Phase 1, no DB). The agent page reads this key on connect.
+const FLOW_STORE_KEY = "miniAgentFlowConfig";
+$("#btn-use").addEventListener("click", () => {
+  const errs = validateFlow();
+  if (errs.length) { showValidation(); toast("Fix validation issues first", "err"); return; }
+  localStorage.setItem(FLOW_STORE_KEY, JSON.stringify(generateConfig()));
+  toast("Flow saved — return to the agent and connect", "ok");
+  if (window.opener && !window.opener.closed) {
+    try { window.opener.focus(); } catch (e) {}
+    setTimeout(() => window.close(), 700);
+  }
+});
 $("#btn-clear").addEventListener("click", () => {
   if (confirm("Reset the canvas? This clears all blocks except Start and End.")) seedDefaults();
 });

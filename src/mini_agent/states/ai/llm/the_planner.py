@@ -5,38 +5,42 @@ from typing import Any, Dict, Optional
 from openai import OpenAI
 
 from mini_agent.models.planner_output import PlannerOutput
+from mini_agent.states.utils import render_tools
 
 MAX_RETRIES = 3
 
-SYSTEM_PROMPT = (
-    "You are the Planner. Your job is to convert a user goal into an ordered list of tool calls "
-    "that the Brain will execute one by one.\n\n"
-    "Each step in the plan is a single tool call. The available tools are:\n"
-    "  - RAG_search: search the local knowledge base (use this first for domain-specific questions)\n"
-    "  - internet_search: fetch live information from the web\n"
-    "  - collect_human_input: ask the user one specific clarifying question\n"
-    "  - ready_for_answer: compile everything and deliver the final answer (always the last step)\n"
-    "  - the_planner: revise the plan mid-execution (use only in replan scenarios)\n"
-    "  - end: refuse the request immediately when it is harmful, illegal, or unethical\n\n"
-    "Rules:\n"
-    "0. HARMFUL/ILLEGAL CHECK (HIGHEST PRIORITY): Before creating any plan, check the user goal. "
-    "If the request involves illegal activity, doing something 'without permission' or 'without authorization', "
-    "bypassing legal requirements, harmful or unethical content — create a single-step plan: "
-    "tool='end', description explaining why the request is refused. Do not add any other steps.\n"
-    "1. Every step must specify the exact tool AND the specific query or action for that tool.\n"
-    "   Bad:  title='Research topic', tool=RAG_search, description='Find information about it'\n"
-    "   Good: title='RAG Search', tool=RAG_search, description='Search for \"mini-agent state machine architecture and tool design\"'\n"
-    "2. Use 3-5 steps maximum. Do not add steps that are obviously unnecessary.\n"
-    "3. Use the condition field for optional steps — steps the Brain should skip if the condition is not met.\n"
-    "   Example: condition='only if RAG results were empty or did not answer the question'\n"
-    "4. Unless refusing a harmful request (single step with tool='end'), the last step must always be ready_for_answer.\n"
-    "5. Only include RAG_search if the knowledge base contents (provided in the user message) are "
-    "relevant to the user's goal. If the KB does not cover the topic, skip RAG_search entirely and "
-    "use internet_search instead.\n"
-    "   Order when RAG is relevant: collect_human_input → RAG_search → internet_search (if needed) → ready_for_answer.\n"
-    "   Order when RAG is not relevant: collect_human_input → internet_search → ready_for_answer.\n"
-    "6. On re-plan: preserve completed steps, revise remaining steps based on replan_instructions."
-)
+
+def _build_system_prompt(available_tools: Dict[str, str], knowledge_base_topics: str = "") -> str:
+    tools_block = render_tools(
+        available_tools,
+        include_internal=True,
+        knowledge_base_topics=knowledge_base_topics,
+    )
+    return (
+        "You are the Planner. Your job is to convert a user goal into an ordered list of tool calls "
+        "that the Brain will execute one by one.\n\n"
+        "Each step in the plan is a single tool call. You may ONLY use the tools listed below — never "
+        "reference a tool that is not in this list. Each tool shows 'How it works (system)', the fixed "
+        "mechanics of the tool, and 'When to use (your guidance)', the operator's instructions for this "
+        "agent:\n"
+        f"{tools_block}\n\n"
+        "Rules:\n"
+        "0. HARMFUL/ILLEGAL CHECK (HIGHEST PRIORITY): Before creating any plan, check the user goal. "
+        "If the request involves illegal activity, doing something 'without permission' or 'without authorization', "
+        "bypassing legal requirements, harmful or unethical content — create a single-step plan with the 'end' "
+        "tool and a description explaining why the request is refused. Do not add any other steps.\n"
+        "1. Every step must specify the exact tool AND the specific query or action for that tool.\n"
+        "   Bad:  title='Research topic', tool=RAG_search, description='Find information about it'\n"
+        "   Good: title='RAG Search', tool=RAG_search, description='Search for \"mini-agent state machine architecture and tool design\"'\n"
+        "2. Use 3-5 steps maximum. Do not add steps that are obviously unnecessary.\n"
+        "3. Use the condition field for optional steps — steps the Brain should skip if the condition is not met.\n"
+        "   Example: condition='only if RAG results were empty or did not answer the question'\n"
+        "4. Unless refusing a harmful request, the final step must be ready_for_answer.\n"
+        "5. Only include RAG_search if the knowledge base contents (provided in the user message) are "
+        "relevant to the user's goal. If the KB does not cover the topic and internet_search is available, "
+        "use internet_search instead.\n"
+        "6. On re-plan: preserve completed steps, revise remaining steps based on replan_instructions."
+    )
 
 
 class ThePlanner:
@@ -47,10 +51,13 @@ class ThePlanner:
     def plan(
         self,
         user_goal: str,
+        available_tools: Dict[str, str],
         knowledge_base_topics: str = "",
         replan_instructions: Optional[str] = None,
         existing_plan: Optional[Dict[str, Any]] = None,
     ) -> PlannerOutput:
+        system_prompt = _build_system_prompt(available_tools, knowledge_base_topics)
+
         kb_line = f"Knowledge base contents: {knowledge_base_topics}" if knowledge_base_topics else "Knowledge base contents: none"
 
         if replan_instructions and existing_plan:
@@ -65,7 +72,7 @@ class ThePlanner:
             user_message = f"User goal: {user_goal}\n{kb_line}\n\nGenerate the execution plan."
 
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
         ]
 

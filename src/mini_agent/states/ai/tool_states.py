@@ -14,6 +14,7 @@ class ToolStates:
         api_key = args_dict.get("api_key") or StateMemory.getVariable("agent_api_key")
         model   = args_dict.get("model")   or StateMemory.getVariable("agent_model")
         knowledge_base_topics = args_dict.get("knowledge_base_topics", "")
+        available_tools = args_dict.get("available_tools", {})
 
         user_goal = StateMemory.getVariable("user_query")
         existing_plan = StateMemory._get_memory()["state_memory"]["updated_by_the_planner"]
@@ -31,6 +32,7 @@ class ToolStates:
         planner = ThePlanner(api_key=api_key, model=model)
         result = planner.plan(
             user_goal=user_goal,
+            available_tools=available_tools,
             knowledge_base_topics=knowledge_base_topics,
             replan_instructions=replan_instructions if is_replan else None,
             existing_plan=existing_plan if is_replan else None,
