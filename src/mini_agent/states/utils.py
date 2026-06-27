@@ -1,5 +1,7 @@
 from typing import Dict
+
 from mini_agent.states.tool_registry import TOOL_REGISTRY
+
 
 def render_tools(available_tools: Dict[str, str], *, include_internal: bool = False, knowledge_base_topics: str = "", ) -> str:
     lines = []
