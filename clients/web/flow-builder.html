@@ -246,6 +246,7 @@
     <div class="title">Agent Flow Builder <small>state-machine config designer</small></div>
     <div class="spacer"></div>
     <button class="btn ghost" id="btn-clear">Reset</button>
+    <button class="btn" id="btn-import">Import</button>
     <button class="btn" id="btn-validate">Validate</button>
     <button class="btn" id="btn-generate">Generate JSON</button>
     <button class="btn primary" id="btn-use">Use this flow</button>
@@ -342,6 +343,7 @@ const CATALOG = {
       { key: "status", label: "End status", control: "text", def: "successful" },
     ],
     serializeArgs: (cfg) => [ cfg.status || "successful" ],
+    deserializeArgs: (args) => ({ status: (args && args[0]) || "successful" }),
   },
   collect_human_input: {
     label: "Collect human input", category: "lifecycle", fn: "collect_human_input",
@@ -433,6 +435,8 @@ const CATALOG = {
 };
 
 const KNOWN_FUNCTIONS = Object.values(CATALOG).map(c => c.fn);
+// fn name -> catalog type (every fn is unique). Used by import to resolve blocks.
+const FN_TO_TYPE = Object.fromEntries(Object.entries(CATALOG).map(([type, c]) => [c.fn, type]));
 
 /* =========================================================================
  *  State
@@ -992,6 +996,92 @@ function generateConfig() {
 }
 
 /* =========================================================================
+ *  Config import — inverse of generateConfig / trimConfig
+ * ========================================================================= */
+function rebuildFromConfig(cfg) {
+  if (!cfg || typeof cfg !== "object" || Array.isArray(cfg) ||
+      !cfg.stateMachine || typeof cfg.stateMachine !== "object" || Array.isArray(cfg.stateMachine))
+    throw new Error("Config must be an object with a stateMachine map.");
+
+  const sm = cfg.stateMachine;
+  const unknown = [];
+  for (const [name, st] of Object.entries(sm))
+    if (!st || !FN_TO_TYPE[st.function]) unknown.push(`${name} (function: ${st && st.function})`);
+  if (unknown.length) throw new Error("Unknown state function(s): " + unknown.join(", "));
+
+  nodes = []; edges = []; uid = 1; selectedId = null;
+
+  // pass 1: create a node per state, reconstruct config from args
+  const byName = {};
+  for (const [name, st] of Object.entries(sm)) {
+    const type = FN_TO_TYPE[st.function];
+    const c = CATALOG[type];
+    const node = makeNode(type, 0, 0, name);
+    const args = st.args || [];
+    if (c.noArgs) {
+      // nothing to read
+    } else if (c.deserializeArgs) {
+      Object.assign(node.config, c.deserializeArgs(args));
+    } else {
+      const dict = args[0] || {};
+      for (const f of c.fields)
+        if (dict[f.key] !== undefined) node.config[f.key] = dict[f.key];
+    }
+    byName[name] = node;
+  }
+
+  // pass 2: rebuild edges + router branches from nextState (names now all known)
+  for (const [name, st] of Object.entries(sm)) {
+    const node = byName[name];
+    const ns = st.nextState;
+    if (Array.isArray(ns)) {
+      for (const entry of ns) {
+        const target = byName[entry.nextState];
+        if (!target) continue;
+        if (entry.conditionFunction === true) {
+          edges.push({ id: eid(), from: node.id, fromPort: "default", to: target.id });
+        } else {
+          const br = { id: "b" + (uid++), tool: (entry.args && entry.args[0] && entry.args[0].tool_to_use) || "" };
+          node.branches.push(br);
+          edges.push({ id: eid(), from: node.id, fromPort: br.id, to: target.id });
+        }
+      }
+    } else if (typeof ns === "string" && ns && ns !== "EndFinal") {
+      const target = byName[ns];
+      if (target) edges.push({ id: eid(), from: node.id, fromPort: "out", to: target.id });
+    }
+  }
+}
+
+/* Layered auto-layout (configs carry no positions). BFS depth from Start. */
+function autoLayout() {
+  const COL = 230, ROW = 170, X0 = 120, Y0 = 80;
+  const start = nodes.find(n => n.type === "start");
+  const depth = {};
+  if (start) {
+    const q = [[start.id, 0]];
+    depth[start.id] = 0;
+    while (q.length) {
+      const [id, d] = q.shift();
+      for (const e of edges) if (e.from === id && depth[e.to] === undefined) {
+        depth[e.to] = d + 1; q.push([e.to, d + 1]);
+      }
+    }
+  }
+  let maxDepth = 0;
+  for (const v of Object.values(depth)) if (v > maxDepth) maxDepth = v;
+  const unreachedDepth = maxDepth + 1;
+  const perRow = {};
+  for (const n of nodes) {
+    const d = depth[n.id] === undefined ? unreachedDepth : depth[n.id];
+    const i = perRow[d] = (perRow[d] || 0);
+    n.x = X0 + i * COL;
+    n.y = Y0 + d * ROW;
+    perRow[d] = i + 1;
+  }
+}
+
+/* =========================================================================
  *  Output modals
  * ========================================================================= */
 const outOverlay = $("#out-overlay");
@@ -1043,6 +1133,51 @@ function showJson() {
   });
 }
 
+function openImport() {
+  outModal.innerHTML = `<h3>Import config</h3>
+    <div class="sub">Upload a <code>state_machine_config.json</code> or paste its JSON to rebuild the flow.</div>
+    <div class="field"><label>Upload file</label>
+      <input type="file" id="imp-file" accept=".json,application/json" />
+    </div>
+    <div class="field"><label>…or paste JSON</label>
+      <textarea id="imp-text" class="big" placeholder='{ "stateMachine": { … } }'></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn ghost" id="imp-cancel">Cancel</button>
+      <button class="btn primary" id="imp-go">Import</button>
+    </div>`;
+  outOverlay.classList.add("show");
+  $("#imp-cancel").addEventListener("click", () => outOverlay.classList.remove("show"));
+  $("#imp-file").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => { $("#imp-text").value = reader.result; };
+    reader.onerror = () => toast("Could not read file", "err");
+    reader.readAsText(file);
+  });
+  $("#imp-go").addEventListener("click", () => {
+    const raw = $("#imp-text").value.trim();
+    if (!raw) { toast("Paste JSON or choose a file first", "err"); return; }
+    let cfg;
+    try { cfg = JSON.parse(raw); }
+    catch (err) { toast("Invalid JSON: " + err.message, "err"); return; }
+    const hasUserContent = nodes.some(n => n.type !== "start" && n.type !== "end") || edges.length;
+    if (hasUserContent && !confirm("Importing replaces the current canvas. Continue?")) return;
+    try {
+      rebuildFromConfig(cfg);
+    } catch (err) {
+      seedDefaults();
+      toast(err.message, "err");
+      return;
+    }
+    autoLayout();
+    render();
+    outOverlay.classList.remove("show");
+    toast("Flow imported", "ok");
+  });
+}
+
 /* =========================================================================
  *  Toast + wiring up buttons
  * ========================================================================= */
@@ -1055,6 +1190,7 @@ function toast(msg, kind) {
   toastTimer = setTimeout(() => t.classList.remove("show"), 1800);
 }
 
+$("#btn-import").addEventListener("click", openImport);
 $("#btn-validate").addEventListener("click", showValidation);
 $("#btn-generate").addEventListener("click", showJson);
 
