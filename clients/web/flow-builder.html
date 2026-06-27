@@ -247,7 +247,8 @@
     <div class="spacer"></div>
     <button class="btn ghost" id="btn-clear">Reset</button>
     <button class="btn" id="btn-validate">Validate</button>
-    <button class="btn primary" id="btn-generate">Generate JSON</button>
+    <button class="btn" id="btn-generate">Generate JSON</button>
+    <button class="btn primary" id="btn-use">Use this flow</button>
   </div>
 
   <div class="main">
@@ -1056,6 +1057,20 @@ function toast(msg, kind) {
 
 $("#btn-validate").addEventListener("click", showValidation);
 $("#btn-generate").addEventListener("click", showJson);
+
+// Validate, then hand the generated config to the agent UI (runtime save in
+// localStorage — Phase 1, no DB). The agent page reads this key on connect.
+const FLOW_STORE_KEY = "miniAgentFlowConfig";
+$("#btn-use").addEventListener("click", () => {
+  const errs = validateFlow();
+  if (errs.length) { showValidation(); toast("Fix validation issues first", "err"); return; }
+  localStorage.setItem(FLOW_STORE_KEY, JSON.stringify(generateConfig()));
+  toast("Flow saved — return to the agent and connect", "ok");
+  if (window.opener && !window.opener.closed) {
+    try { window.opener.focus(); } catch (e) {}
+    setTimeout(() => window.close(), 700);
+  }
+});
 $("#btn-clear").addEventListener("click", () => {
   if (confirm("Reset the canvas? This clears all blocks except Start and End.")) seedDefaults();
 });

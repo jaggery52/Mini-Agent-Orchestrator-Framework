@@ -23,6 +23,7 @@ WEB_DIR = pathlib.Path(__file__).resolve().parents[2] / "clients" / "web"
 WEB_CLIENT_HTML = WEB_DIR / "index.html"
 LOGIN_HTML = WEB_DIR / "login.html"
 CREATE_ACCOUNT_HTML = WEB_DIR / "create-account.html"
+FLOW_BUILDER_HTML = WEB_DIR / "flow-builder.html"
 
 # Upper bound on the combined size of a session's uploaded KB docs. Keeps per-session
 MAX_DOCS_BYTES = 2 * 1024 * 1024
@@ -77,6 +78,11 @@ async def create_account_page():
 @app.get("/mini-agent-ui")
 async def web_client():
     return FileResponse(WEB_CLIENT_HTML, media_type="text/html")
+
+
+@app.get("/flow-builder")
+async def flow_builder():
+    return FileResponse(FLOW_BUILDER_HTML, media_type="text/html")
 
 
 # User accounts (signup / login / per-user access token)
@@ -155,8 +161,18 @@ async def _authenticate(websocket: WebSocket, session: SessionContext) -> bool:
         await websocket.close(code=4001, reason="Incomplete init payload")
         return False
 
+    config_source = message.get("config_source", "local")
     usecase = message["usecase"]
-    if usecase not in _known_usecases():
+
+    if config_source == "user_config":
+        flow_config = message.get("flow_config")
+        if not isinstance(flow_config, dict) or not isinstance(flow_config.get("stateMachine"), dict):
+            await websocket.send_json({"type": "error", "content": "Invalid 'flow_config': expected an object with a 'stateMachine' map."})
+            await websocket.close(code=4001, reason="Invalid flow_config")
+            return False
+        session.config_source = "user_config"
+        session.flow_config = flow_config
+    elif usecase not in _known_usecases():
         await websocket.send_json({"type": "error", "content": f"Unknown usecase '{usecase}'."})
         await websocket.close(code=4001, reason="Unknown usecase")
         return False

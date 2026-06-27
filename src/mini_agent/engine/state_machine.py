@@ -22,20 +22,25 @@ class StateMachine:
         logging.info(f"[StateMachine] Initialized with config: {config_name}")
 
     def __read_base_config(self, config_name: str) -> None:
-        config_json_path = self.configs_path / config_name / "state_machine_config.json"
-        with open(config_json_path) as config_file:
-            raw_config = json.load(config_file)
-            self.state_machine = raw_config["stateMachine"]
+        session = get_session()
+
+        if session is not None and session.config_source == "user_config":
+            self.state_machine = session.flow_config["stateMachine"]
+            logging.debug("[StateMachine] Loaded config from WS user_config")
+        else:
+            config_json_path = self.configs_path / config_name / "state_machine_config.json"
+            with open(config_json_path) as config_file:
+                raw_config = json.load(config_file)
+                self.state_machine = raw_config["stateMachine"]
+            logging.debug(f"[StateMachine] Loaded config from {config_json_path}")
 
         self.conditions = CustomConditions()
         self.states = CustomStates()
 
-        session = get_session()
         StateMemory.setVariable("agent_model",   session.agent_model)
         StateMemory.setVariable("agent_api_key", session.openai_api_key)
         StateMemory.setVariable("tavily_api_key", session.tavily_api_key)
         logging.debug("[StateMachine] Session config seeded from WS handshake")
-        logging.debug(f"[StateMachine] Loaded config from {config_json_path}")
 
     def __parse_function_args(self, arguments: List[Any]) -> List[Any]:
         args = copy.deepcopy(arguments)
