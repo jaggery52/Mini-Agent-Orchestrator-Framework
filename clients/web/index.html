@@ -1009,6 +1009,10 @@
           <span id="customFlowStatus" class="account-note" style="margin:0;">No custom flow loaded.</span>
           <button type="button" class="link-button" id="clearFlowButton" style="display:none;">Clear</button>
         </div>
+        <div class="account-row" style="margin-top:8px;">
+          <select id="savedConfigSelect"><option value="">— load a saved config —</option></select>
+          <button type="button" class="secondary-button visible" id="loadSavedConfigButton">Load</button>
+        </div>
       </div>
 
       <div class="field">
@@ -1101,6 +1105,8 @@
     const buildFlowButton = document.getElementById("buildFlowButton");
     const clearFlowButton = document.getElementById("clearFlowButton");
     const customFlowStatus = document.getElementById("customFlowStatus");
+    const savedConfigSelect = document.getElementById("savedConfigSelect");
+    const loadSavedConfigButton = document.getElementById("loadSavedConfigButton");
     const settingsButton = document.getElementById("settingsButton");
     const accountEmail = document.getElementById("accountEmail");
     const signOutButton = document.getElementById("signOutButton");
@@ -1726,10 +1732,55 @@
       if (connectDialog.open) refreshCustomFlowStatus();
     });
 
+    // ---- Saved configs (per-account, server-side) ---------------------------
+    async function configsApi(path, payload) {
+      const res = await fetch(path, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token: currentUser.token, ...payload }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || "Request failed");
+      return data;
+    }
+
+    async function refreshSavedConfigs() {
+      if (!currentUser || !currentUser.token) return;
+      let saved;
+      try { saved = (await configsApi("/api/configs/list", {})).configs; }
+      catch (error) { return; }
+      savedConfigSelect.innerHTML = "";
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = "— load a saved config —";
+      savedConfigSelect.appendChild(placeholder);
+      for (const cfg of saved) {
+        const option = document.createElement("option");
+        option.value = cfg.id;
+        option.textContent = cfg.name;
+        savedConfigSelect.appendChild(option);
+      }
+    }
+
+    // Loading reuses the localStorage custom-flow path, so connect/Clear work unchanged.
+    loadSavedConfigButton.addEventListener("click", async () => {
+      const id = savedConfigSelect.value;
+      if (!id) { showConnectError("Pick a saved config to load."); return; }
+      try {
+        const data = await configsApi("/api/configs/load", { id: Number(id) });
+        localStorage.setItem(FLOW_STORE_KEY, JSON.stringify(data.config));
+        refreshCustomFlowStatus();
+        showToast(`Loaded '${data.name}' as the custom flow.`);
+      } catch (error) {
+        showConnectError(error.message);
+      }
+    });
+
     function openConnectDialog() {
       showConnectError("");
       prefillConnectForm();
       refreshCustomFlowStatus();
+      refreshSavedConfigs();
       if (!connectDialog.open) {
         connectDialog.showModal();
       }

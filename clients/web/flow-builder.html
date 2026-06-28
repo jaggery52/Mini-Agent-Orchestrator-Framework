@@ -249,6 +249,8 @@
     <button class="btn" id="btn-import">Import</button>
     <button class="btn" id="btn-validate">Validate</button>
     <button class="btn" id="btn-generate">Generate JSON</button>
+    <button class="btn" id="btn-save-account">Save to account</button>
+    <button class="btn" id="btn-my-configs">My configs</button>
     <button class="btn primary" id="btn-use">Use this flow</button>
   </div>
 
@@ -1210,6 +1212,84 @@ $("#btn-use").addEventListener("click", () => {
 $("#btn-clear").addEventListener("click", () => {
   if (confirm("Reset the canvas? This clears all blocks except Start and End.")) seedDefaults();
 });
+
+// Saved configs (per-account, server-side). Token lives in localStorage from login.
+const USER_KEY = "miniAgentUser";
+function authToken() {
+  try { return (JSON.parse(localStorage.getItem(USER_KEY)) || {}).token || ""; }
+  catch (e) { return ""; }
+}
+async function configsApi(path, payload) {
+  const token = authToken();
+  if (!token) { toast("Sign in first", "err"); throw new Error("Not signed in"); }
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ token, ...payload }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || "Request failed");
+  return data;
+}
+
+$("#btn-save-account").addEventListener("click", async () => {
+  const errs = validateFlow();
+  if (errs.length) { showValidation(); toast("Fix validation issues first", "err"); return; }
+  const name = (prompt("Save config as:") || "").trim();
+  if (!name) return;
+  try {
+    await configsApi("/api/configs/save", { name, config: generateConfig() });
+    toast("Saved as '" + name + "'", "ok");
+  } catch (err) { toast(err.message, "err"); }
+});
+
+$("#btn-my-configs").addEventListener("click", openMyConfigs);
+
+async function openMyConfigs() {
+  let saved;
+  try { saved = (await configsApi("/api/configs/list", {})).configs; }
+  catch (err) { toast(err.message, "err"); return; }
+  const rowStyle = "display:flex;gap:8px;align-items:center;justify-content:space-between;padding:6px 0;";
+  const rows = saved.length
+    ? saved.map(cfg => `<div class="cfg-row" data-id="${cfg.id}" style="${rowStyle}">
+        <span>${escapeHtml(cfg.name)}</span>
+        <span class="sub">${escapeHtml((cfg.updated_at || "").slice(0, 16).replace("T", " "))}</span>
+        <button class="btn" data-act="load">Load</button>
+        <button class="btn ghost" data-act="del">Delete</button>
+      </div>`).join("")
+    : `<div class="sub">No saved configs yet.</div>`;
+  outModal.innerHTML = `<h3>My configs</h3>
+    <div class="sub">Load one into the canvas, or delete it.</div>
+    <div id="cfg-list">${rows}</div>
+    <div class="modal-actions"><button class="btn ghost" id="out-close">Close</button></div>`;
+  outOverlay.classList.add("show");
+  $("#out-close").addEventListener("click", () => outOverlay.classList.remove("show"));
+  outModal.querySelectorAll(".cfg-row").forEach(row => {
+    const id = Number(row.dataset.id);
+    row.querySelector('[data-act="load"]').addEventListener("click", () => loadSavedConfig(id));
+    row.querySelector('[data-act="del"]').addEventListener("click", () => deleteSavedConfig(id));
+  });
+}
+
+async function loadSavedConfig(id) {
+  let data;
+  try { data = await configsApi("/api/configs/load", { id }); }
+  catch (err) { toast(err.message, "err"); return; }
+  try { rebuildFromConfig(data.config); }
+  catch (err) { seedDefaults(); toast(err.message, "err"); return; }
+  autoLayout();
+  render();
+  outOverlay.classList.remove("show");
+  toast("Loaded '" + data.name + "'", "ok");
+}
+
+async function deleteSavedConfig(id) {
+  if (!confirm("Delete this saved config?")) return;
+  try {
+    await configsApi("/api/configs/delete", { id });
+    openMyConfigs();
+  } catch (err) { toast(err.message, "err"); }
+}
 window.addEventListener("resize", redrawWires);
 canvas.addEventListener("scroll", redrawWires);
 document.addEventListener("keydown", (e) => {
