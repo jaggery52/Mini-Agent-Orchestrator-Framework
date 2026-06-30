@@ -3,6 +3,12 @@
 ``server.py`` imports the public surface from here.
 """
 
+from mini_agent.db.configs import (
+    delete_config,
+    get_config,
+    list_configs,
+    save_config,
+)
 from mini_agent.db.database import init_db
 from mini_agent.db.users import (
     DuplicateEmailError,
@@ -19,4 +25,8 @@ __all__ = [
     "get_user_by_token",
     "regenerate_token",
     "DuplicateEmailError",
+    "save_config",
+    "list_configs",
+    "get_config",
+    "delete_config",
 ]

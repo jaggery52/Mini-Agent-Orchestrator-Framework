@@ -103,6 +103,21 @@ class TokenRequest(BaseModel):
     token: str
 
 
+class ConfigSaveRequest(BaseModel):
+    token: str
+    name: str
+    config: dict
+
+
+class ConfigIdRequest(BaseModel):
+    token: str
+    id: int
+
+
+def _is_valid_flow_config(config: dict) -> bool:
+    return isinstance(config, dict) and isinstance(config.get("stateMachine"), dict)
+
+
 @app.post("/api/register", status_code=201)
 async def register(body: RegisterRequest):
     name = body.name.strip()
@@ -133,6 +148,47 @@ async def regenerate_token(body: TokenRequest):
     if user is None:
         raise HTTPException(status_code=401, detail="Invalid token.")
     return {"token": db.regenerate_token(user["id"])}
+
+
+def _require_user(token: str) -> dict:
+    user = db.get_user_by_token(token)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Invalid token.")
+    return user
+
+
+@app.post("/api/configs/save")
+async def save_config(body: ConfigSaveRequest):
+    user = _require_user(body.token)
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="A config name is required.")
+    if not _is_valid_flow_config(body.config):
+        raise HTTPException(status_code=400, detail="Invalid config: expected an object with a 'stateMachine' map.")
+    return db.save_config(user["id"], name, body.config)
+
+
+@app.post("/api/configs/list")
+async def list_configs(body: TokenRequest):
+    user = _require_user(body.token)
+    return {"configs": db.list_configs(user["id"])}
+
+
+@app.post("/api/configs/load")
+async def load_config(body: ConfigIdRequest):
+    user = _require_user(body.token)
+    config = db.get_config(user["id"], body.id)
+    if config is None:
+        raise HTTPException(status_code=404, detail="Config not found.")
+    return config
+
+
+@app.post("/api/configs/delete")
+async def delete_config(body: ConfigIdRequest):
+    user = _require_user(body.token)
+    if not db.delete_config(user["id"], body.id):
+        raise HTTPException(status_code=404, detail="Config not found.")
+    return {"deleted": body.id}
 
 
 async def _authenticate(websocket: WebSocket, session: SessionContext) -> bool:
@@ -166,7 +222,7 @@ async def _authenticate(websocket: WebSocket, session: SessionContext) -> bool:
 
     if config_source == "user_config":
         flow_config = message.get("flow_config")
-        if not isinstance(flow_config, dict) or not isinstance(flow_config.get("stateMachine"), dict):
+        if not _is_valid_flow_config(flow_config):
             await websocket.send_json({"type": "error", "content": "Invalid 'flow_config': expected an object with a 'stateMachine' map."})
             await websocket.close(code=4001, reason="Invalid flow_config")
             return False
